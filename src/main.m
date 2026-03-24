@@ -36,6 +36,8 @@ int main(int argc, char **argv) {
         bool running = true;
         while (running) {
             @autoreleasepool {
+                platform_frame_begin();
+
                 PlatformEvent event;
                 while (platform_poll_event(&event)) {
                     if (event.type == PLATFORM_EVENT_CLOSE) {
@@ -52,9 +54,24 @@ int main(int argc, char **argv) {
                 r8e_dl_push_fill_rect(&dl, 300, 200, 150, 150, 0xFFFF4444, 0.0f);
                 r8e_dl_push_fill_rect(&dl, 100, 300, 300, 80, 0xFF44CC44, 16.0f);
 
+                /* Stroke rect */
+                r8e_dl_push_stroke_rect(&dl, 500, 50, 200, 100, 0xFFFFFFFF, 3.0f, 8.0f);
+
+                /* Clipping test */
+                r8e_dl_push_clip(&dl, 100, 100, 200, 200);
+                r8e_dl_push_fill_rect(&dl, 50, 50, 300, 300, 0x88FF00FF, 0.0f); /* partially clipped */
+                r8e_dl_pop_clip(&dl);
+
+                /* Opacity test */
+                r8e_dl_push_opacity(&dl, 0.4f);
+                r8e_dl_push_fill_rect(&dl, 400, 350, 200, 100, 0xFFFF8800, 12.0f);
+                r8e_dl_pop_opacity(&dl);
+
                 gpu->begin_frame();
                 gpu->render(&dl);
                 gpu->present();
+
+                platform_frame_end();
             }
         }
 

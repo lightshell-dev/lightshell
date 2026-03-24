@@ -3,6 +3,8 @@
 #import <QuartzCore/CAMetalLayer.h>
 #include "platform.h"
 #include <string.h>
+#include <mach/mach_time.h>
+#include <unistd.h>
 
 /* --- Event ring buffer --- */
 static PlatformEvent g_event_queue[PLATFORM_EVENT_QUEUE_SIZE];
@@ -327,4 +329,26 @@ float platform_get_scale_factor(void) {
 
 void *platform_get_metal_layer(void) {
     return (__bridge void *)g_metal_layer;
+}
+
+static uint64_t g_frame_start = 0;
+static double g_tick_to_ns = 0;
+
+void platform_frame_begin(void) {
+    if (g_tick_to_ns == 0) {
+        mach_timebase_info_data_t info;
+        mach_timebase_info(&info);
+        g_tick_to_ns = (double)info.numer / (double)info.denom;
+    }
+    g_frame_start = mach_absolute_time();
+}
+
+void platform_frame_end(void) {
+    uint64_t elapsed = mach_absolute_time() - g_frame_start;
+    double elapsed_ms = (double)elapsed * g_tick_to_ns / 1000000.0;
+    double target_ms = 16.667;  /* 60fps */
+    double remaining = target_ms - elapsed_ms;
+    if (remaining > 0.5) {
+        usleep((useconds_t)(remaining * 1000));
+    }
 }

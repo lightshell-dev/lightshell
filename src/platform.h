@@ -41,4 +41,7 @@ void platform_get_size(int *width, int *height);
 float platform_get_scale_factor(void);
 void *platform_get_metal_layer(void);  /* returns CAMetalLayer* */
 
+void platform_frame_begin(void);
+void platform_frame_end(void);   /* sleeps to hit 60fps target */
+
 #endif
