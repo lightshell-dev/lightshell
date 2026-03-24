@@ -1,0 +1,330 @@
+/* platform_darwin.m - macOS platform layer with Metal-backed window */
+#import <Cocoa/Cocoa.h>
+#import <QuartzCore/CAMetalLayer.h>
+#include "platform.h"
+#include <string.h>
+
+/* --- Event ring buffer --- */
+static PlatformEvent g_event_queue[PLATFORM_EVENT_QUEUE_SIZE];
+static int g_queue_head = 0;  /* read position */
+static int g_queue_tail = 0;  /* write position */
+static int g_queue_count = 0;
+
+static void event_push(PlatformEvent *ev) {
+    if (g_queue_count >= PLATFORM_EVENT_QUEUE_SIZE) {
+        /* Queue full — drop oldest event */
+        g_queue_head = (g_queue_head + 1) % PLATFORM_EVENT_QUEUE_SIZE;
+        g_queue_count--;
+    }
+    g_event_queue[g_queue_tail] = *ev;
+    g_queue_tail = (g_queue_tail + 1) % PLATFORM_EVENT_QUEUE_SIZE;
+    g_queue_count++;
+}
+
+static bool event_pop(PlatformEvent *ev) {
+    if (g_queue_count == 0) return false;
+    *ev = g_event_queue[g_queue_head];
+    g_queue_head = (g_queue_head + 1) % PLATFORM_EVENT_QUEUE_SIZE;
+    g_queue_count--;
+    return true;
+}
+
+/* --- Globals --- */
+static NSWindow *g_window = nil;
+static CAMetalLayer *g_metal_layer = nil;
+static NSApplication *g_app = nil;
+
+/* --- Helper: modifier flags to booleans --- */
+static void fill_modifiers(PlatformEvent *ev, NSEventModifierFlags flags) {
+    ev->ctrl  = (flags & NSEventModifierFlagControl) != 0;
+    ev->shift = (flags & NSEventModifierFlagShift) != 0;
+    ev->alt   = (flags & NSEventModifierFlagOption) != 0;
+    ev->meta  = (flags & NSEventModifierFlagCommand) != 0;
+}
+
+/* --- MetalView: NSView subclass that vends a CAMetalLayer --- */
+@interface MetalView : NSView
+@end
+
+@implementation MetalView
+
+- (BOOL)wantsLayer { return YES; }
+
+- (CALayer *)makeBackingLayer {
+    CAMetalLayer *layer = [CAMetalLayer layer];
+    g_metal_layer = layer;
+    return layer;
+}
+
+- (BOOL)wantsUpdateLayer { return YES; }
+
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)mouseDown:(NSEvent *)event {
+    NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_MOUSE_DOWN;
+    ev.mouse_x = (float)loc.x;
+    ev.mouse_y = (float)(self.bounds.size.height - loc.y);
+    ev.mouse_button = 0;
+    fill_modifiers(&ev, [event modifierFlags]);
+    event_push(&ev);
+}
+
+- (void)mouseUp:(NSEvent *)event {
+    NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_MOUSE_UP;
+    ev.mouse_x = (float)loc.x;
+    ev.mouse_y = (float)(self.bounds.size.height - loc.y);
+    ev.mouse_button = 0;
+    fill_modifiers(&ev, [event modifierFlags]);
+    event_push(&ev);
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+    NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_MOUSE_MOVE;
+    ev.mouse_x = (float)loc.x;
+    ev.mouse_y = (float)(self.bounds.size.height - loc.y);
+    fill_modifiers(&ev, [event modifierFlags]);
+    event_push(&ev);
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+    [self mouseMoved:event];
+}
+
+- (void)rightMouseDown:(NSEvent *)event {
+    NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_MOUSE_DOWN;
+    ev.mouse_x = (float)loc.x;
+    ev.mouse_y = (float)(self.bounds.size.height - loc.y);
+    ev.mouse_button = 1;
+    fill_modifiers(&ev, [event modifierFlags]);
+    event_push(&ev);
+}
+
+- (void)rightMouseUp:(NSEvent *)event {
+    NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_MOUSE_UP;
+    ev.mouse_x = (float)loc.x;
+    ev.mouse_y = (float)(self.bounds.size.height - loc.y);
+    ev.mouse_button = 1;
+    fill_modifiers(&ev, [event modifierFlags]);
+    event_push(&ev);
+}
+
+- (void)keyDown:(NSEvent *)event {
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_KEY_DOWN;
+    ev.keycode = (uint32_t)[event keyCode];
+    fill_modifiers(&ev, [event modifierFlags]);
+    event_push(&ev);
+}
+
+- (void)keyUp:(NSEvent *)event {
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_KEY_UP;
+    ev.keycode = (uint32_t)[event keyCode];
+    fill_modifiers(&ev, [event modifierFlags]);
+    event_push(&ev);
+}
+
+@end
+
+/* --- Window delegate --- */
+@interface LightShellWindowDelegate : NSObject <NSWindowDelegate>
+@end
+
+@implementation LightShellWindowDelegate
+
+- (BOOL)windowShouldClose:(NSWindow *)sender {
+    (void)sender;
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_CLOSE;
+    event_push(&ev);
+    return NO;  /* We handle shutdown ourselves */
+}
+
+- (void)windowDidResize:(NSNotification *)notification {
+    (void)notification;
+    NSView *contentView = [g_window contentView];
+    NSSize size = contentView.bounds.size;
+    CGFloat scale = g_window.backingScaleFactor;
+
+    /* Update Metal layer drawable size */
+    if (g_metal_layer) {
+        g_metal_layer.drawableSize = CGSizeMake(size.width * scale, size.height * scale);
+    }
+
+    PlatformEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type = PLATFORM_EVENT_RESIZE;
+    ev.width = (int)(size.width * scale);
+    ev.height = (int)(size.height * scale);
+    event_push(&ev);
+}
+
+@end
+
+static LightShellWindowDelegate *g_window_delegate = nil;
+
+/* --- App delegate to stop the run loop after launch --- */
+@interface LightShellAppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation LightShellAppDelegate
+
+- (void)applicationDidFinishLaunching:(NSNotification *)notification {
+    (void)notification;
+    [g_app stop:nil];
+    /* Post a dummy event to ensure [NSApp run] returns after stop */
+    NSEvent *dummy = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
+                                        location:NSMakePoint(0, 0)
+                                   modifierFlags:0
+                                       timestamp:0
+                                    windowNumber:0
+                                         context:nil
+                                         subtype:0
+                                           data1:0
+                                           data2:0];
+    [g_app postEvent:dummy atStart:YES];
+}
+
+@end
+
+static LightShellAppDelegate *g_app_delegate = nil;
+
+/* --- Platform API implementation --- */
+
+int platform_init(PlatformWindowConfig *config) {
+    g_app = [NSApplication sharedApplication];
+    [g_app setActivationPolicy:NSApplicationActivationPolicyRegular];
+
+    /* Create menu bar (required for proper cmd+Q, focus, etc.) */
+    NSMenu *menubar = [[NSMenu alloc] init];
+    NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+    [menubar addItem:appMenuItem];
+    [g_app setMainMenu:menubar];
+
+    NSMenu *appMenu = [[NSMenu alloc] init];
+    NSString *quitTitle = [NSString stringWithFormat:@"Quit %s", config->title];
+    NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:quitTitle
+                                                     action:@selector(terminate:)
+                                              keyEquivalent:@"q"];
+    [appMenu addItem:quitItem];
+    [appMenuItem setSubmenu:appMenu];
+
+    /* Window style */
+    NSWindowStyleMask styleMask = NSWindowStyleMaskTitled
+                                | NSWindowStyleMaskClosable
+                                | NSWindowStyleMaskMiniaturizable;
+    if (config->resizable) {
+        styleMask |= NSWindowStyleMaskResizable;
+    }
+
+    NSRect frame = NSMakeRect(0, 0, config->width, config->height);
+    g_window = [[NSWindow alloc] initWithContentRect:frame
+                                           styleMask:styleMask
+                                             backing:NSBackingStoreBuffered
+                                               defer:NO];
+
+    NSString *title = [NSString stringWithUTF8String:config->title];
+    [g_window setTitle:title];
+    [g_window center];
+
+    if (config->min_width > 0 && config->min_height > 0) {
+        [g_window setMinSize:NSMakeSize(config->min_width, config->min_height)];
+    }
+
+    /* Window delegate */
+    g_window_delegate = [[LightShellWindowDelegate alloc] init];
+    [g_window setDelegate:g_window_delegate];
+
+    /* Metal view */
+    MetalView *metalView = [[MetalView alloc] initWithFrame:frame];
+    [g_window setContentView:metalView];
+
+    /* Configure Metal layer after view is attached */
+    if (g_metal_layer) {
+        g_metal_layer.contentsScale = g_window.backingScaleFactor;
+        CGFloat scale = g_window.backingScaleFactor;
+        g_metal_layer.drawableSize = CGSizeMake(config->width * scale, config->height * scale);
+    }
+
+    /* Accept mouse moved events */
+    [g_window setAcceptsMouseMovedEvents:YES];
+
+    /* Show and activate */
+    [g_window makeKeyAndOrderFront:nil];
+
+    /* Use app delegate to properly initialize and then return control */
+    g_app_delegate = [[LightShellAppDelegate alloc] init];
+    [g_app setDelegate:g_app_delegate];
+    [g_app run];  /* This returns after applicationDidFinishLaunching calls stop */
+
+    [g_app activateIgnoringOtherApps:YES];
+
+    return 0;
+}
+
+bool platform_poll_event(PlatformEvent *event) {
+    /* Drain Cocoa event queue first */
+    @autoreleasepool {
+        NSEvent *ns_event;
+        while ((ns_event = [g_app nextEventMatchingMask:NSEventMaskAny
+                                             untilDate:nil
+                                                inMode:NSDefaultRunLoopMode
+                                               dequeue:YES])) {
+            [g_app sendEvent:ns_event];
+            [g_app updateWindows];
+        }
+    }
+
+    return event_pop(event);
+}
+
+void platform_shutdown(void) {
+    if (g_window) {
+        [g_window close];
+        g_window = nil;
+    }
+    g_metal_layer = nil;
+    g_window_delegate = nil;
+    g_app_delegate = nil;
+}
+
+void platform_get_size(int *width, int *height) {
+    if (g_window) {
+        NSSize size = [[g_window contentView] bounds].size;
+        CGFloat scale = g_window.backingScaleFactor;
+        *width = (int)(size.width * scale);
+        *height = (int)(size.height * scale);
+    } else {
+        *width = 0;
+        *height = 0;
+    }
+}
+
+float platform_get_scale_factor(void) {
+    if (g_window) {
+        return (float)g_window.backingScaleFactor;
+    }
+    return 1.0f;
+}
+
+void *platform_get_metal_layer(void) {
+    return (__bridge void *)g_metal_layer;
+}
