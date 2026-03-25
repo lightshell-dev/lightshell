@@ -146,6 +146,17 @@ static void fill_modifiers(PlatformEvent *ev, NSEventModifierFlags flags) {
 
 @end
 
+/* --- Resize render callback ---
+ * During window resize, macOS enters a modal event tracking loop.
+ * Our main loop stops running, so no frames render.
+ * We use a callback to keep rendering during resize. */
+typedef void (*PlatformResizeRenderCallback)(void);
+static PlatformResizeRenderCallback g_resize_render_cb = NULL;
+
+void platform_set_resize_render_callback(PlatformResizeRenderCallback cb) {
+    g_resize_render_cb = cb;
+}
+
 /* --- Window delegate --- */
 @interface LightShellWindowDelegate : NSObject <NSWindowDelegate>
 @end
@@ -167,7 +178,7 @@ static void fill_modifiers(PlatformEvent *ev, NSEventModifierFlags flags) {
     NSSize size = contentView.bounds.size;
     CGFloat scale = g_window.backingScaleFactor;
 
-    /* Update Metal layer drawable size */
+    /* Update Metal layer drawable size immediately */
     if (g_metal_layer) {
         g_metal_layer.drawableSize = CGSizeMake(size.width * scale, size.height * scale);
     }
@@ -178,6 +189,16 @@ static void fill_modifiers(PlatformEvent *ev, NSEventModifierFlags flags) {
     ev.width = (int)(size.width * scale);
     ev.height = (int)(size.height * scale);
     event_push(&ev);
+
+    /* Render immediately during resize so content follows smoothly */
+    if (g_resize_render_cb) {
+        g_resize_render_cb();
+    }
+}
+
+- (void)windowWillStartLiveResize:(NSNotification *)notification {
+    (void)notification;
+    /* Set up a display link timer during resize for smooth rendering */
 }
 
 @end

@@ -39,9 +39,15 @@ bool platform_poll_event(PlatformEvent *event);  /* returns false if queue empty
 void platform_shutdown(void);
 void platform_get_size(int *width, int *height);
 float platform_get_scale_factor(void);
-void *platform_get_metal_layer(void);  /* returns CAMetalLayer* */
+void *platform_get_metal_layer(void);    /* returns CAMetalLayer* (macOS) */
+void *platform_get_vulkan_instance(void); /* returns VkInstance (Linux) */
+void *platform_get_vulkan_surface(void);  /* returns VkSurfaceKHR (Linux) */
 
 void platform_frame_begin(void);
 void platform_frame_end(void);   /* sleeps to hit 60fps target */
+
+/* Resize render callback: called during live window resize so frames keep rendering */
+typedef void (*PlatformResizeRenderCallback)(void);
+void platform_set_resize_render_callback(PlatformResizeRenderCallback cb);
 
 #endif

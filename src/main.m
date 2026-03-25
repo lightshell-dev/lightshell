@@ -11,6 +11,38 @@
 #include "r8e_types.h"
 #include "api.h"
 
+/* File-scope state for resize callback access */
+static GPUBackend *s_gpu;
+static R8EDLArena *s_arena;
+static DisplayList *s_dl;
+static uint32_t s_test_tex;
+
+/* Called from windowDidResize during live resize — renders a frame immediately */
+static void resize_render(void) {
+    @autoreleasepool {
+        r8e_dl_arena_reset(s_arena);
+        r8e_dl_clear(s_dl);
+        r8e_dl_push_fill_rect(s_dl, 50, 50, 200, 100, 0xFF3366FF, 8.0f);
+        r8e_dl_push_fill_rect(s_dl, 300, 200, 150, 150, 0xFFFF4444, 0.0f);
+        r8e_dl_push_fill_rect(s_dl, 100, 300, 300, 80, 0xFF44CC44, 16.0f);
+        if (s_test_tex) {
+            r8e_dl_push_draw_image(s_dl, 550, 180, 128, 128, s_test_tex);
+        }
+        {
+            R8EGlyphRun *runs = NULL;
+            uint32_t run_count = 0;
+            const char *hello = "Hello LightShell!";
+            if (ls_text_shape(s_dl, hello, (uint32_t)strlen(hello),
+                              32.0f, &runs, &run_count) == 0 && runs) {
+                r8e_dl_push_fill_text(s_dl, 50, 500, runs, run_count, 32.0f, 0xFFFFFFFF);
+            }
+        }
+        s_gpu->begin_frame();
+        s_gpu->render(s_dl);
+        s_gpu->present();
+    }
+}
+
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
@@ -93,6 +125,17 @@ int main(int argc, char **argv) {
         r8e_dl_init(&dl, &arena);
 
         float mouse_x = 0, mouse_y = 0;
+
+        /* Store state in file-scope statics so the resize callback can render */
+        static GPUBackend *s_gpu;
+        static R8EDLArena *s_arena;
+        static DisplayList *s_dl;
+        static uint32_t s_test_tex;
+        s_gpu = gpu; s_arena = &arena; s_dl = &dl;
+        s_test_tex = test_tex;
+
+        /* Register resize render callback for smooth resize */
+        platform_set_resize_render_callback(resize_render);
 
         bool running = true;
         while (running) {
