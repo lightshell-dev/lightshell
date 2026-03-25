@@ -1,6 +1,7 @@
 /* platform_darwin.m - macOS platform layer with Metal-backed window */
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <Metal/Metal.h>
 #include "platform.h"
 #include <string.h>
 #include <mach/mach_time.h>
@@ -259,11 +260,24 @@ int platform_init(PlatformWindowConfig *config) {
     MetalView *metalView = [[MetalView alloc] initWithFrame:frame];
     [g_window setContentView:metalView];
 
+    /* Force layer creation by accessing .layer — makeBackingLayer is called lazily */
+    [metalView setWantsLayer:YES];
+    CALayer *backing = [metalView layer];  /* triggers makeBackingLayer */
+    (void)backing;
+
     /* Configure Metal layer after view is attached */
     if (g_metal_layer) {
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        g_metal_layer.device = device;
+        g_metal_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+        g_metal_layer.framebufferOnly = YES;
         g_metal_layer.contentsScale = g_window.backingScaleFactor;
         CGFloat scale = g_window.backingScaleFactor;
         g_metal_layer.drawableSize = CGSizeMake(config->width * scale, config->height * scale);
+        fprintf(stderr, "[platform] Metal layer created: %p device=%s\n",
+                (__bridge void *)g_metal_layer, [[device name] UTF8String]);
+    } else {
+        fprintf(stderr, "[platform] ERROR: Metal layer is nil after view creation!\n");
     }
 
     /* Accept mouse moved events */

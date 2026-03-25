@@ -412,10 +412,7 @@ static int metal_init(void *layer) {
 
 static void metal_begin_frame(void) {
     g_drawable = [g_layer nextDrawable];
-    if (!g_drawable) {
-        /* Drawable may be unavailable transiently (e.g. window minimized) */
-        return;
-    }
+    if (!g_drawable) return;
     g_cmd_buf = [g_queue commandBuffer];
 }
 
@@ -583,12 +580,12 @@ static void metal_render(DisplayList *dl) {
                     flush_rects(enc, &rect_count);
                 }
                 MetalRectInstance *inst = &rects[rect_count++];
-                inst->position[0] = cmd->fill_rect.x;
-                inst->position[1] = cmd->fill_rect.y;
-                inst->size[0] = cmd->fill_rect.w;
-                inst->size[1] = cmd->fill_rect.h;
+                inst->position[0] = cmd->fill_rect.x * scale_x;
+                inst->position[1] = cmd->fill_rect.y * scale_y;
+                inst->size[0] = cmd->fill_rect.w * scale_x;
+                inst->size[1] = cmd->fill_rect.h * scale_y;
                 unpack_color_with_opacity(cmd->fill_rect.color, current_opacity, inst->color);
-                inst->border_radius = cmd->fill_rect.border_radius;
+                inst->border_radius = cmd->fill_rect.border_radius * scale_x;
                 inst->stroke_width = 0.0f;
                 inst->_pad[0] = 0;
                 inst->_pad[1] = 0;
@@ -600,10 +597,10 @@ static void metal_render(DisplayList *dl) {
                     flush_rects(enc, &rect_count);
                 }
                 MetalRectInstance *inst = &rects[rect_count++];
-                inst->position[0] = cmd->stroke_rect.x;
-                inst->position[1] = cmd->stroke_rect.y;
-                inst->size[0] = cmd->stroke_rect.w;
-                inst->size[1] = cmd->stroke_rect.h;
+                inst->position[0] = cmd->stroke_rect.x * scale_x;
+                inst->position[1] = cmd->stroke_rect.y * scale_y;
+                inst->size[0] = cmd->stroke_rect.w * scale_x;
+                inst->size[1] = cmd->stroke_rect.h * scale_y;
                 unpack_color_with_opacity(cmd->stroke_rect.color, current_opacity, inst->color);
                 inst->border_radius = cmd->stroke_rect.border_radius;
                 inst->stroke_width = cmd->stroke_rect.width;
