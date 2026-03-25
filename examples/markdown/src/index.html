@@ -213,9 +213,11 @@
       function esc(s) {
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       }
-      // Fenced code blocks first (preserve content)
-      let html = src.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-        `<pre><code>${esc(code.trim())}</code></pre>`)
+      // Sanitize input first to prevent XSS, then apply markdown transforms
+      let html = esc(src)
+      // Fenced code blocks first (already escaped)
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+        `<pre><code>${code.trim()}</code></pre>`)
       // Inline transforms
       html = html
         .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -227,7 +229,7 @@
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
         .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-        .replace(/^> (.+)$/gm, '<blockquote><p>$1</p></blockquote>')
+        .replace(/^&gt; (.+)$/gm, '<blockquote><p>$1</p></blockquote>')
         .replace(/^---$/gm, '<hr>')
         .replace(/^[*\-] (.+)$/gm, '<li>$1</li>')
         .replace(/^(?!<[hpuolbdi]|<li|<hr|<pre|<block)(.+)$/gm, '<p>$1</p>')

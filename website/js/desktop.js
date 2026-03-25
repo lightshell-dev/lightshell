@@ -191,14 +191,20 @@
       const preview = document.getElementById('md-preview')
       if (!input || !preview) return
       function renderMd(text) {
-        return text
+        // Sanitize input to prevent XSS before applying markdown transforms
+        const escaped = text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+        return escaped
           .replace(/^### (.+)$/gm, '<h3>$1</h3>')
           .replace(/^## (.+)$/gm, '<h2>$1</h2>')
           .replace(/^# (.+)$/gm, '<h1>$1</h1>')
           .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
           .replace(/\*(.+?)\*/g, '<em>$1</em>')
           .replace(/`(.+?)`/g, '<code style="background:rgba(0,0,0,0.06);padding:1px 5px;border-radius:3px;font-size:0.85em">$1</code>')
-          .replace(/^> (.+)$/gm, '<blockquote style="border-left:3px solid rgba(0,0,0,0.15);padding-left:12px;color:var(--text-secondary)">$1</blockquote>')
+          .replace(/^&gt; (.+)$/gm, '<blockquote style="border-left:3px solid rgba(0,0,0,0.15);padding-left:12px;color:var(--text-secondary)">$1</blockquote>')
           .replace(/^- (.+)$/gm, '<li>$1</li>')
           .replace(/(<li>.*<\/li>)/s, '<ul style="padding-left:1.2rem">$1</ul>')
           .replace(/\n\n/g, '<br><br>')

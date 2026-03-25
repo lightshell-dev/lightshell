@@ -1,9 +1,10 @@
 // Simple markdown parser — no dependencies
 function parseMarkdown(md) {
-  let html = md
+  // Sanitize input first to prevent XSS, then apply markdown transforms
+  let html = escapeHtml(md)
     // Code blocks (fenced)
     .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-      `<pre><code class="lang-${lang}">${escapeHtml(code.trim())}</code></pre>`)
+      `<pre><code class="lang-${lang}">${code.trim()}</code></pre>`)
     // Inline code
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     // Headings
@@ -18,7 +19,7 @@ function parseMarkdown(md) {
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
     // Blockquotes
-    .replace(/^> (.+)$/gm, '<blockquote><p>$1</p></blockquote>')
+    .replace(/^&gt; (.+)$/gm, '<blockquote><p>$1</p></blockquote>')
     // Horizontal rule
     .replace(/^---$/gm, '<hr>')
     // Unordered list items

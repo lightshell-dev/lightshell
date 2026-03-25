@@ -390,17 +390,33 @@
 
     function renderHistory() {
       const el = document.getElementById('history-list')
+      el.textContent = ''
       if (history.length === 0) {
-        el.innerHTML = '<div style="padding:12px;font-size:11px;color:var(--ls-color-text-secondary)">No requests yet</div>'
+        const empty = document.createElement('div')
+        empty.style.cssText = 'padding:12px;font-size:11px;color:var(--ls-color-text-secondary)'
+        empty.textContent = 'No requests yet'
+        el.appendChild(empty)
         return
       }
-      el.innerHTML = history.map((h, i) => `
-        <div class="history-item" data-idx="${i}">
-          <span class="history-method ${h.method}">${h.method}</span>
-          <span class="status-badge status-${Math.floor(h.status / 100)}xx" style="font-size:10px">${h.status}</span>
-          <span class="history-url">${escapeHtml(h.url)}</span>
-        </div>
-      `).join('')
+      history.forEach((h, i) => {
+        const row = document.createElement('div')
+        row.className = 'history-item'
+        row.dataset.idx = i
+        const method = document.createElement('span')
+        method.className = 'history-method ' + escapeHtml(h.method)
+        method.textContent = h.method
+        const status = document.createElement('span')
+        status.className = 'status-badge status-' + Math.floor(h.status / 100) + 'xx'
+        status.style.fontSize = '10px'
+        status.textContent = h.status
+        const url = document.createElement('span')
+        url.className = 'history-url'
+        url.textContent = h.url
+        row.appendChild(method)
+        row.appendChild(status)
+        row.appendChild(url)
+        el.appendChild(row)
+      })
     }
 
     // Click history item to load it
