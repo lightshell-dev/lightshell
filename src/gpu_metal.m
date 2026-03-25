@@ -410,9 +410,16 @@ static int metal_init(void *layer) {
     return 0;
 }
 
+static bool g_rendering = false;  /* reentrancy guard for resize callback */
+
 static void metal_begin_frame(void) {
+    if (g_rendering) return;  /* prevent reentrancy from resize callback */
+    g_rendering = true;
     g_drawable = [g_layer nextDrawable];
-    if (!g_drawable) return;
+    if (!g_drawable) {
+        g_rendering = false;
+        return;
+    }
     g_cmd_buf = [g_queue commandBuffer];
 }
 
@@ -744,11 +751,16 @@ static void metal_render(DisplayList *dl) {
 }
 
 static void metal_present(void) {
-    if (!g_drawable || !g_cmd_buf) return;
+    if (!g_drawable || !g_cmd_buf) {
+        g_rendering = false;
+        return;
+    }
     [g_cmd_buf presentDrawable:g_drawable];
     [g_cmd_buf commit];
+    [g_cmd_buf waitUntilCompleted];  /* ensure GPU finishes before next frame */
     g_drawable = nil;
     g_cmd_buf = nil;
+    g_rendering = false;
 }
 
 static void metal_resize(uint32_t width, uint32_t height) {
