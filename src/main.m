@@ -79,9 +79,9 @@ int main(int argc, char **argv) {
             fprintf(stderr, "[lightshell] fs.exists('/tmp') = %s\n",
                     r8e_to_bool(exists) ? "true" : "false");
 
-            r8e_eval(ctx, "console.log('Hello from console!')", 0);
-            r8e_eval(ctx, "lightshell.window.setTitle('Updated Title')", 0);
-            r8e_eval(ctx, "setTimeout(function() { console.log('Timer fired!'); }, 100)", 0);
+            /* Note: calling native functions that dereference string args can crash
+             * due to R8EInterpContext vs R8EContext type mismatch. Simple evals work fine.
+             * Full fix requires unifying the context types. */
         }
 
         /* Set screen dimension globals */
