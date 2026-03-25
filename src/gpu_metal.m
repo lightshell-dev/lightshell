@@ -755,9 +755,11 @@ static void metal_present(void) {
         g_rendering = false;
         return;
     }
-    [g_cmd_buf presentDrawable:g_drawable];
+    /* With presentsWithTransaction: commit first, wait, then present drawable.
+     * This synchronizes Metal rendering with Core Animation for smooth resize. */
     [g_cmd_buf commit];
-    [g_cmd_buf waitUntilCompleted];  /* ensure GPU finishes before next frame */
+    [g_cmd_buf waitUntilScheduled];
+    [g_drawable present];
     g_drawable = nil;
     g_cmd_buf = nil;
     g_rendering = false;

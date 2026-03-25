@@ -190,10 +190,9 @@ void platform_set_resize_render_callback(PlatformResizeRenderCallback cb) {
     ev.height = (int)(size.height * scale);
     event_push(&ev);
 
-    /* Render immediately during resize so content follows smoothly */
-    if (g_resize_render_cb) {
-        g_resize_render_cb();
-    }
+    /* Note: smooth resize is handled via presentsWithTransaction on the Metal layer,
+     * set during platform_init. This avoids reentrancy issues from calling render
+     * during the resize delegate callback. */
 }
 
 - (void)windowWillStartLiveResize:(NSNotification *)notification {
@@ -292,6 +291,7 @@ int platform_init(PlatformWindowConfig *config) {
         g_metal_layer.device = device;
         g_metal_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         g_metal_layer.framebufferOnly = YES;
+        g_metal_layer.presentsWithTransaction = YES;  /* smooth resize: syncs Metal with Core Animation */
         g_metal_layer.contentsScale = g_window.backingScaleFactor;
         CGFloat scale = g_window.backingScaleFactor;
         g_metal_layer.drawableSize = CGSizeMake(config->width * scale, config->height * scale);
