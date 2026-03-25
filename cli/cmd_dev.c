@@ -6,6 +6,11 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <time.h>
+#include <signal.h>
+#include <sys/wait.h>
+
+/* Forward declaration — defined in cmd_build.c */
+int cmd_build(int argc, char **argv);
 
 /* Simple file watcher: poll mtimes every 500ms */
 #define MAX_WATCHED 256
@@ -42,15 +47,45 @@ static void scan_dir(const char *dir) {
 }
 
 static bool check_changes(void) {
+    bool changed = false;
     for (int i = 0; i < g_watch_count; i++) {
         time_t now = get_mtime(g_watched[i].path);
         if (now != g_watched[i].mtime) {
             printf("[dev] Changed: %s\n", g_watched[i].path);
             g_watched[i].mtime = now;
-            return true;
+            changed = true;
         }
     }
-    return false;
+    return changed;
+}
+
+static volatile pid_t g_app_pid = 0;
+
+static void kill_app(void) {
+    if (g_app_pid > 0) {
+        kill(g_app_pid, SIGTERM);
+        int status;
+        waitpid(g_app_pid, &status, 0);
+        g_app_pid = 0;
+    }
+}
+
+static void sigint_handler(int sig) {
+    (void)sig;
+    kill_app();
+    printf("\n[dev] Stopped.\n");
+    _exit(0);
+}
+
+static pid_t launch_app(void) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* Child: exec the app */
+        execl("./build/app", "./build/app", (char *)NULL);
+        perror("exec build/app");
+        _exit(1);
+    }
+    return pid;
 }
 
 int cmd_dev(int argc, char **argv) {
@@ -62,26 +97,63 @@ int cmd_dev(int argc, char **argv) {
         return 1;
     }
 
+    signal(SIGINT, sigint_handler);
+
     printf("[dev] Starting development server...\n");
-    printf("[dev] Watching src/ for changes\n");
 
-    /* Initial file scan */
+    /* Build the app first */
+    int ret = cmd_build(0, NULL);
+    if (ret != 0) {
+        fprintf(stderr, "[dev] Build failed\n");
+        return ret;
+    }
+
+    /* Launch the app */
+    printf("[dev] Launching app...\n");
+    g_app_pid = launch_app();
+    if (g_app_pid < 0) {
+        fprintf(stderr, "[dev] Failed to launch app\n");
+        return 1;
+    }
+
+    /* Watch for file changes */
     scan_dir("src");
-    printf("[dev] Watching %d files\n", g_watch_count);
+    printf("[dev] Watching %d files (press Ctrl+C to stop)\n\n", g_watch_count);
 
-    /* TODO: Launch the app window with r8e + Metal rendering.
-     * For now, just watch for file changes. In the full implementation,
-     * this would create a platform window, load the entry HTML,
-     * and reload on file changes. */
-
-    printf("[dev] App running at window (press Ctrl+C to stop)\n\n");
-
-    /* Poll for changes */
     while (1) {
-        if (check_changes()) {
-            printf("[dev] Reloading...\n");
-            /* In full implementation: destroy r8e context, recreate, re-eval */
+        /* Check if app exited on its own */
+        if (g_app_pid > 0) {
+            int status;
+            pid_t p = waitpid(g_app_pid, &status, WNOHANG);
+            if (p > 0) {
+                g_app_pid = 0;
+                if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                    printf("[dev] App exited normally.\n");
+                    return 0;
+                }
+                printf("[dev] App exited with code %d\n",
+                       WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+                /* Wait for file change to rebuild and relaunch */
+            }
         }
+
+        if (check_changes()) {
+            printf("[dev] Rebuilding...\n");
+            kill_app();
+
+            ret = cmd_build(0, NULL);
+            if (ret != 0) {
+                fprintf(stderr, "[dev] Rebuild failed, waiting for next change...\n");
+            } else {
+                printf("[dev] Relaunching app...\n");
+                g_app_pid = launch_app();
+            }
+
+            /* Re-scan files (new files may have been added) */
+            g_watch_count = 0;
+            scan_dir("src");
+        }
+
         usleep(500000); /* 500ms */
     }
 
