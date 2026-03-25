@@ -1,113 +1,98 @@
 # LightShell
 
-[![CI](https://github.com/lightshell-dev/lightshell/actions/workflows/ci.yml/badge.svg)](https://github.com/lightshell-dev/lightshell/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/lightshell-dev/lightshell/actions/workflows/codeql.yml/badge.svg)](https://github.com/lightshell-dev/lightshell/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/lightshell-dev/lightshell/badge)](https://scorecard.dev/viewer/?uri=github.com/lightshell-dev/lightshell)
-[![Go Coverage](https://img.shields.io/badge/coverage->85%25-brightgreen)](https://github.com/lightshell-dev/lightshell/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lightshell-dev/lightshell)](https://goreportcard.com/report/github.com/lightshell-dev/lightshell)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![npm](https://img.shields.io/npm/v/@lightshell/cli)](https://www.npmjs.com/package/@lightshell/cli)
+[![CI](https://github.com/lightshell-dev/lightshell/actions/workflows/ci.yml/badge.svg)](https://github.com/lightshell-dev/lightshell/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Build desktop apps with JavaScript. Ship them under 5MB.
+Build desktop apps with JavaScript. Ship them under 1MB.
 
 ---
-
-## Quick Start
-
-```bash
-npx @lightshell/create my-app
-cd my-app
-npx @lightshell/cli dev
-```
-
-Or install globally:
-
-```bash
-npm install -g @lightshell/cli
-lightshell init my-app
-cd my-app
-lightshell dev
-```
-
-That's it. No Rust toolchain. No C++ compiler. No 10-minute setup. You write JS/HTML/CSS, LightShell handles the rest.
 
 ## Why LightShell?
 
 | | Electron | Tauri | LightShell |
 |---|---------|-------|------------|
-| You write | JS + Node | JS + Rust | **JS only** |
-| Binary size | ~180MB | ~8MB | **~2.8MB** |
-| Startup time | ~1.2s | ~0.5s | **~0.3s** |
-| Memory usage | ~120MB | ~45MB | **~30MB** |
-| Setup time | 2 min | 10 min | **30 sec** |
+| **Binary size** | ~180MB | ~8MB | **~1MB** |
+| **Startup time** | ~1.2s | ~0.5s | **<100ms** |
+| **Memory usage** | ~120MB | ~45MB | **~15MB** |
+| **Dependencies** | Node.js, Chromium | Rust, system webview | **None** |
+| **You write** | JS + Node | JS + Rust | **JS only** |
+| **GPU rendering** | Chromium (bundled) | System webview | **Metal / Vulkan** |
 
-LightShell apps are pure JS/HTML/CSS with a simple API surface — making them easy for AI to generate end-to-end.
+LightShell doesn't bundle a browser or use a system webview. It has its own JavaScript engine ([r8e](https://github.com/lightshell-dev/r8e)), its own layout engine (flexbox), and renders directly to the GPU via Metal (macOS) or Vulkan (Linux). The result: a single native binary under 1MB with zero runtime dependencies.
+
+## Quick Start
+
+```bash
+lightshell init my-app
+cd my-app
+lightshell dev
+```
 
 ## How It Works
 
-LightShell uses **system webviews** (WKWebView on macOS, WebKitGTK on Linux) instead of bundling Chromium. Your HTML/CSS/JS is embedded into a single Go binary via `embed.FS` at compile time.
-
-The result: a native app with no runtime dependencies, no bundled browser, and a binary under 5MB.
-
 ```
-Your JS/HTML/CSS
-      |
-  [ LightShell CLI ]
-      |
-  Single native binary (~2.8MB)
-      |
-  System webview (WKWebView / WebKitGTK)
-      |
-  Native desktop app
+Your JavaScript / HTML / CSS
+         │
+    ┌────▼─────┐
+    │   r8e    │  JavaScript engine (166KB, C11)
+    │  engine  │  DOM, flexbox layout, CSS styling
+    └────┬─────┘
+         │ Display List
+    ┌────▼─────┐
+    │   GPU    │  Metal (macOS) / Vulkan (Linux)
+    │ renderer │  Rectangles, text, images, clipping
+    └────┬─────┘
+         │
+    Native window (Cocoa / X11)
 ```
 
-You never see Go. You never write Go. You never configure Go. It's an implementation detail, like how esbuild uses Go but nobody cares.
+No browser. No webview. No Node.js. No Go. No Rust. Pure C from top to bottom.
 
-## Native APIs -- All from JavaScript
+## Native APIs
 
 ```js
-// Read and write files
-const content = await lightshell.fs.readFile('./data.json')
-await lightshell.fs.writeFile('./output.txt', 'Hello from LightShell')
+// File system
+var content = lightshell.fs.readFile('./data.json', 'utf-8')
+lightshell.fs.writeFile('./output.txt', 'Hello from LightShell')
 
-// Native file dialogs
-const file = await lightshell.dialog.open({
+// Native dialogs
+var file = lightshell.dialog.open({
   filters: [{ name: 'JSON', extensions: ['json'] }]
 })
 
-// Save dialogs
-const path = await lightshell.dialog.save({ defaultPath: 'output.txt' })
-
-// System notifications
-lightshell.notify.send('Saved!', 'Your file has been saved')
-
 // Clipboard
-await lightshell.clipboard.write('Copied to clipboard')
-const text = await lightshell.clipboard.read()
+lightshell.clipboard.write('Copied!')
+var text = lightshell.clipboard.read()
 
 // Open URLs in default browser
 lightshell.shell.open('https://lightshell.dev')
 
 // Window management
-await lightshell.window.setTitle('My App')
-await lightshell.window.setSize(1200, 800)
+lightshell.window.setTitle('My App')
+lightshell.window.setSize(1200, 800)
 
 // System info
-const platform = await lightshell.system.platform()  // 'darwin' or 'linux'
-const home = await lightshell.system.homeDir()
-```
+lightshell.system.platform   // 'darwin' or 'linux'
+lightshell.system.homeDir    // '/Users/you'
 
-Every API call returns a Promise. No callbacks, no event emitters, no Node.js globals.
+// App menu
+lightshell.menu.set([
+  { label: 'File', submenu: [
+    { label: 'Quit', accelerator: 'Cmd+Q', click: function() { lightshell.app.quit() } }
+  ]}
+])
+```
 
 ## Project Structure
 
 ```
 my-app/
-  lightshell.json      # App config (name, window size, icon)
+  lightshell.json      # App config
   src/
     index.html         # Entry point
-    app.js             # Your application code
+    app.js             # Your code
     style.css          # Your styles
+  assets/              # Images, fonts
 ```
 
 **lightshell.json:**
@@ -121,14 +106,9 @@ my-app/
     "title": "My App",
     "width": 1024,
     "height": 768,
-    "minWidth": 400,
-    "minHeight": 300,
     "resizable": true
   },
-  "build": {
-    "icon": "assets/icon.png",
-    "appId": "com.example.myapp"
-  }
+  "permissions": ["fs", "dialog", "clipboard", "shell", "menu"]
 }
 ```
 
@@ -137,44 +117,73 @@ my-app/
 ```bash
 lightshell init [name]     # Create a new project
 lightshell dev             # Run with hot reload
-lightshell build           # Build for current platform
-lightshell doctor          # Check cross-platform compatibility
-lightshell version         # Print version
+lightshell build           # Build native binary
+lightshell doctor          # Check system dependencies
 ```
 
 ## Platform Support
 
-| Platform | Architecture | Webview | Package Format |
-|----------|-------------|---------|----------------|
-| macOS | arm64, x64 | WKWebView | .app bundle |
-| Linux | x64, arm64 | WebKitGTK 2.40+ | AppImage |
+| Platform | GPU | Window | Status |
+|----------|-----|--------|--------|
+| macOS (arm64, x86_64) | Metal | Cocoa | Supported |
+| Linux (x86_64, aarch64) | Vulkan | X11 | Supported |
 
-Windows support is planned for v2.
+## Architecture
 
-## Development
+LightShell is built on three layers, all in C:
+
+**1. r8e Engine** — A 166KB JavaScript engine with built-in DOM, flexbox layout, CSS styling, and event dispatch. Executes your app's JavaScript and produces a display list of rendering commands.
+
+**2. GPU Renderer** — Consumes the display list and renders via Metal (macOS) or Vulkan (Linux). Instanced quad rendering for rectangles, glyph atlas for text, texture cache for images. 60fps with VSync.
+
+**3. Platform Layer** — Native window management, input handling, and OS APIs (file system, dialogs, clipboard, menus). Cocoa/Objective-C on macOS, X11/C on Linux.
+
+### Zero Dependencies
+
+LightShell has no external library dependencies:
+
+- **JavaScript engine**: r8e (our own, C11)
+- **Font rendering**: Hardened TrueType rasterizer (our own, bounds-checked)
+- **Image loading**: stb_image (vendored, public domain)
+- **Text shaping**: Simple left-to-right (built-in)
+- **GPU**: Metal / Vulkan (system frameworks)
+- **Window**: Cocoa / X11 (system frameworks)
+
+Bundled fonts: Inter and Open Sans (embedded as C arrays).
+
+### Security
+
+- r8e's 5-layer security architecture protects against untrusted JavaScript
+- Capability-based permissions: apps declare what they need in `lightshell.json`
+- Font parser is hardened: every byte read is bounds-checked, malformed fonts return errors
+- No JIT compiler: eliminates an entire class of security vulnerabilities
+
+## Building from Source
 
 ```bash
-# Clone the repo
 git clone https://github.com/lightshell-dev/lightshell.git
 cd lightshell
-
-# Build
-go build ./cmd/lightshell
-
-# Run tests
-go test ./...
-
-# Linux dependencies
-sudo apt-get install libgtk-3-dev libwebkit2gtk-4.1-dev
+make                    # auto-fetches r8e engine, builds everything
+make run-demo           # run the demo app
 ```
 
-## Documentation
+The build system automatically fetches the [r8e engine](https://github.com/lightshell-dev/r8e) at the pinned version. No manual setup required.
 
-- [Getting Started](https://lightshell.dev/docs/getting-started) -- Install and build your first app in 5 minutes
-- [API Reference](https://lightshell.dev/docs/api/window) -- Complete API documentation
-- [Tutorial](https://lightshell.dev/docs/tutorial/01-your-first-app) -- Build a real app step by step
-- [Cross-Platform Guide](https://lightshell.dev/docs/guides/cross-platform) -- Handle platform differences
-- [Playground](https://lightshell.dev/playground) -- Try LightShell in your browser
+### Build the CLI
+
+```bash
+cd cli && make
+./build/lightshell --help
+```
+
+## Contributing
+
+Contributions welcome. The codebase is pure C11 and Objective-C (macOS) with no external dependencies.
+
+```bash
+make clean && make      # build
+cd ../r8e && make test  # run engine tests
+```
 
 ## License
 

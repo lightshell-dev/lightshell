@@ -50,9 +50,9 @@ int cmd_doctor(int argc, char **argv) {
     total++; ok += check_command("pkg-config --exists x11", "X11");
     #endif
 
-    /* r8e engine */
+    /* r8e engine (auto-fetched by make) */
     printf("\nr8e engine:\n");
-    total++; ok += check_file("../r8e/build/libr8e.a", "libr8e.a");
+    total++; ok += check_file("engine/r8e/build/libr8e.a", "libr8e.a (run 'make' to auto-fetch and build)");
 
     printf("\n%d/%d checks passed\n", ok, total);
 

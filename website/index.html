@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LightShell — Build desktop apps with JavaScript. Ship under 5MB.</title>
-  <meta name="description" content="LightShell is a lightweight desktop app framework. Write JS/HTML/CSS, get native apps under 5MB. No Rust, no bundled browser.">
-  <meta property="og:title" content="LightShell — Desktop apps in JS, under 5MB">
-  <meta property="og:description" content="Write JS/HTML/CSS. One command. Native binary under 5MB. Designed for AI to generate working desktop apps.">
+  <title>LightShell — Build desktop apps with JavaScript. Ship under 1MB.</title>
+  <meta name="description" content="LightShell is a desktop app framework with its own JS engine and GPU renderer. Native apps under 1MB. No browser, no webview, zero dependencies.">
+  <meta property="og:title" content="LightShell — Desktop apps in JS, under 1MB">
+  <meta property="og:description" content="Write JS/HTML/CSS. Own JS engine, own GPU renderer. Native binary under 1MB. Metal on macOS, Vulkan on Linux.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://lightshell.dev">
   <link rel="stylesheet" href="css/shared.css">
@@ -32,7 +32,7 @@
 <template id="content-welcome">
   <div class="welcome-content">
     <h1>LightShell</h1>
-    <p class="tagline">Build desktop apps with JavaScript.<br>Ship them under 5MB.</p>
+    <p class="tagline">Build desktop apps with JavaScript.<br>Ship them under 1MB.</p>
     <div class="cta-group">
       <button class="btn btn-primary" onclick="openGettingStarted()">Get Started</button>
       <button class="btn btn-secondary" onclick="openPlayground()">Open Playground</button>
@@ -47,7 +47,8 @@
   <div class="steps">
     <div class="step">
       <h3>Install LightShell</h3>
-      <pre><code>npm install -g @lightshell/cli</code></pre>
+      <pre><code>git clone https://github.com/lightshell-dev/lightshell.git
+cd lightshell && make && cd cli && make</code></pre>
     </div>
     <div class="step">
       <h3>Create your app</h3>
@@ -93,7 +94,7 @@ const arch = await lightshell.system.arch()           // "arm64"</code></pre>
         <span class="example-icon">&#128075;</span>
         <div class="example-info">
           <strong>Hello World</strong>
-          <code class="example-size">~2.8MB</code>
+          <code class="example-size">~1MB</code>
         </div>
       </div>
       <p class="example-desc">Minimal app showing system info cards. Calls <code>lightshell.system</code> APIs to display platform, arch, hostname.</p>
@@ -107,7 +108,7 @@ const hostname = await lightshell.system.hostname()</code></pre>
         <span class="example-icon">&#128221;</span>
         <div class="example-info">
           <strong>Markdown Editor</strong>
-          <code class="example-size">~3.2MB</code>
+          <code class="example-size">~1.2MB</code>
         </div>
       </div>
       <p class="example-desc">Split-pane editor with live preview. Open/save files via native dialogs. Keyboard shortcuts: Cmd+O, Cmd+S.</p>
@@ -123,7 +124,7 @@ await lightshell.fs.writeFile(path, editor.value)</code></pre>
         <span class="example-icon">&#128187;</span>
         <div class="example-info">
           <strong>System Monitor</strong>
-          <code class="example-size">~3.0MB</code>
+          <code class="example-size">~1.1MB</code>
         </div>
       </div>
       <p class="example-desc">Dark-themed dashboard showing system info, directory listings, clipboard copy, and notifications. Live uptime counter.</p>
@@ -137,7 +138,7 @@ lightshell.notify.send('Copied', 'Info copied!')</code></pre>
         <span class="example-icon">&#127912;</span>
         <div class="example-info">
           <strong>Color Picker</strong>
-          <code class="example-size">~2.9MB</code>
+          <code class="example-size">~1MB</code>
         </div>
       </div>
       <p class="example-desc">RGB sliders with live preview and hex output. Copy to clipboard with one click using native APIs.</p>
@@ -187,17 +188,17 @@ lightshell.notify.send('Copied!', hex)</code></pre>
       <tr>
         <td class="highlight">LightShell</td>
         <td class="highlight">JS only</td>
-        <td class="highlight">~2.8MB</td>
-        <td class="highlight">0.3s</td>
-        <td class="highlight">30MB</td>
+        <td class="highlight">~1MB</td>
+        <td class="highlight">&lt;100ms</td>
+        <td class="highlight">15MB</td>
         <td class="highlight">30 sec</td>
       </tr>
     </tbody>
   </table>
 
   <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 16px;">
-    LightShell uses system webviews (WKWebView on macOS, WebKitGTK on Linux) &mdash; no bundled browser engine.
-    Electron bundles Chromium. Tauri uses system webviews like LightShell but requires Rust for the backend.
+    LightShell has its own JS engine (r8e) and GPU renderer (Metal/Vulkan) &mdash; no browser, no webview, zero dependencies.
+    Electron bundles Chromium. Tauri uses system webviews but requires Rust for the backend.
   </p>
 </template>
 
