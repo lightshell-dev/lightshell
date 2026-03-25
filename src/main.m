@@ -9,6 +9,7 @@
 #include "r8e_display_list.h"
 #include "r8e_api.h"
 #include "r8e_types.h"
+#include "api.h"
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -52,6 +53,26 @@ int main(int argc, char **argv) {
         if (!ctx) {
             fprintf(stderr, "Failed to create r8e context\n");
             return 1;
+        }
+
+        /* Initialize native APIs */
+        ls_api_fs_init(ctx);
+        ls_api_sysinfo_init(ctx);
+        ls_api_clipboard_init(ctx);
+        ls_api_shell_init(ctx);
+        ls_api_dialog_init(ctx);
+        ls_api_menu_init(ctx);
+
+        /* Verify native APIs */
+        {
+            R8EValue platform = r8e_eval(ctx, "lightshell.system.platform", 0);
+            char pbuf[8]; size_t plen;
+            const char *pstr = r8e_get_cstring(platform, pbuf, &plen);
+            fprintf(stderr, "[lightshell] system.platform = '%.*s'\n", (int)plen, pstr);
+
+            R8EValue exists = r8e_eval(ctx, "lightshell.fs.exists('/tmp')", 0);
+            fprintf(stderr, "[lightshell] fs.exists('/tmp') = %s\n",
+                    r8e_to_bool(exists) ? "true" : "false");
         }
 
         /* Set screen dimension globals */
