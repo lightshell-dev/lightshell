@@ -17,6 +17,10 @@ typedef struct GPUBackend {
     void (*update_glyph_atlas)(const uint8_t *data, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 } GPUBackend;
 
+/* Metal backend (macOS) */
 GPUBackend *gpu_metal_create(void);
+
+/* Vulkan backend (Linux) */
+GPUBackend *gpu_vulkan_create(void);
 
 #endif

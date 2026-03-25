@@ -1,0 +1,13 @@
+#version 450
+
+layout(set = 1, binding = 0) uniform sampler2D atlas;
+
+layout(location = 0) in vec2 v_texcoord;
+layout(location = 1) in vec4 v_color;
+
+layout(location = 0) out vec4 out_color;
+
+void main() {
+    float alpha = texture(atlas, v_texcoord).r;
+    out_color = vec4(v_color.rgb, v_color.a * alpha);
+}
