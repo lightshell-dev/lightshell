@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include "platform.h"
 #include "gpu.h"
+#include "image.h"
+#include "text.h"
+#include "glyph_atlas.h"
 #include "r8e_display_list.h"
 #include "r8e_api.h"
 #include "r8e_types.h"
@@ -28,6 +31,20 @@ int main(int argc, char **argv) {
         if (!gpu || gpu->init(platform_get_metal_layer()) != 0) {
             fprintf(stderr, "Failed to initialize GPU backend\n");
             return 1;
+        }
+
+        /* Create a test pattern texture for the image demo */
+        LSImage *test_img = ls_image_create_test_pattern(128, 128);
+        uint32_t test_tex = gpu->load_texture(test_img->pixels, test_img->width, test_img->height);
+        ls_image_free(test_img);
+        if (test_tex) {
+            fprintf(stderr, "[lightshell] Test pattern texture created: id=%u\n", test_tex);
+        }
+
+        /* Initialize text subsystem */
+        ls_glyph_atlas_init();
+        if (ls_text_init(NULL) != 0) {
+            fprintf(stderr, "Warning: text init failed, text won't render\n");
         }
 
         /* Initialize r8e JS engine */
@@ -112,6 +129,25 @@ int main(int argc, char **argv) {
                 r8e_dl_push_fill_rect(&dl, 400, 350, 200, 100, 0xFFFF8800, 12.0f);
                 r8e_dl_pop_opacity(&dl);
 
+                /* Image demo: draw test pattern texture */
+                if (test_tex) {
+                    r8e_dl_push_draw_image(&dl, 550, 180, 128, 128, test_tex);
+                }
+
+                /* Text demo: render "Hello LightShell!" */
+                {
+                    R8EGlyphRun *runs = NULL;
+                    uint32_t run_count = 0;
+                    const char *hello = "Hello LightShell!";
+                    if (ls_text_shape(&dl, hello, (uint32_t)strlen(hello),
+                                      32.0f, &runs, &run_count) == 0) {
+                        if (runs && run_count > 0) {
+                            r8e_dl_push_fill_text(&dl, 50, 500, runs, run_count,
+                                                  32.0f, 0xFFFFFFFF);
+                        }
+                    }
+                }
+
                 gpu->begin_frame();
                 gpu->render(&dl);
                 gpu->present();
@@ -122,6 +158,8 @@ int main(int argc, char **argv) {
 
         r8e_dl_destroy(&dl);
         r8e_dl_arena_destroy(&arena);
+        ls_text_shutdown();
+        ls_glyph_atlas_destroy();
         gpu->destroy();
         r8e_context_free(ctx);
         platform_shutdown();
