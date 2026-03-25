@@ -6,112 +6,114 @@ Thanks for your interest in contributing! LightShell is an open-source desktop a
 
 ### Prerequisites
 
-- **Go 1.23+** — [install](https://go.dev/dl/)
-- **Node.js 20+** — [install](https://nodejs.org/)
+- **C11 compiler** — Clang (macOS) or GCC (Linux)
 - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
-- **Linux**: `libgtk-3-dev` and `libwebkit2gtk-4.1-dev`
+- **Linux**: Vulkan SDK, X11 development headers
 
 ### Setup
 
 ```bash
 git clone https://github.com/lightshell-dev/lightshell.git
 cd lightshell
-go build ./cmd/lightshell
+make                    # auto-fetches r8e engine, builds everything
+make run-demo           # verify it works
 ```
 
-### Running locally
+### Build the CLI
 
 ```bash
-# Build the CLI
-go build -o lightshell ./cmd/lightshell
-
-# Create a test app
-./lightshell init test-app
+cd cli && make
+../build/lightshell init test-app
 cd test-app
-../lightshell dev
+../../build/lightshell dev
 ```
 
-### Running tests
+### Running r8e engine tests
 
 ```bash
-go test ./tests/...
+cd engine/r8e && make test    # 1500+ tests
 ```
 
 ## Project Structure
 
 ```
-cmd/lightshell/     CLI entry point
-internal/
-  runtime/          Core app lifecycle + webview management
-  webview/          WKWebView (macOS) / WebKitGTK (Linux)
-  ipc/              Unix domain socket IPC server
-  api/              Native API handlers (fs, dialog, clipboard, etc.)
-  cli/              CLI commands (init, dev, build, doctor)
-  compat/           Cross-platform compatibility layer
-  security/         Permission system
-client/             JS client library (injected into webview)
-templates/          Project templates
-packaging/          .app and AppImage bundlers
-website/            Landing page (static HTML/CSS/JS)
-docs/               Documentation site (Astro/Starlight)
-tests/              Test suite
+src/                    Platform layer (C / Objective-C)
+  main.m                macOS entry point + event loop
+  platform_darwin.m     macOS window, input, Metal surface
+  platform_linux.c      Linux window, input, Vulkan surface
+  gpu_metal.m           Metal GPU renderer
+  gpu_vulkan.c          Vulkan GPU renderer
+  text.c                Text shaping (uses r8e_font)
+  glyph_atlas.c         Glyph atlas texture manager
+  image.c               Image loading (stb_image)
+  api_fs.c              File system API
+  api_dialog_darwin.m   Native dialogs (macOS)
+  api_clipboard_darwin.m  Clipboard (macOS)
+  api_shell_darwin.m    Shell / URL opening
+  api_sysinfo.c         System info
+  api_menu_darwin.m     App menu (macOS)
+cli/                    CLI tool (init, dev, build, doctor)
+engine/                 Auto-fetched r8e JS engine (gitignored)
+website/                Landing page (lightshell.dev)
+docs/                   Documentation
+examples/               Example apps
 ```
 
 ## What to Contribute
 
 ### Good first issues
 
-- Add new compatibility rules to `internal/compat/rules.go`
-- Improve error messages in CLI commands
-- Add examples to the documentation
-- Fix CSS issues in the website
+- Add new native API modules (e.g., notifications, tray)
+- Improve Metal/Vulkan rendering (shadows, gradients)
+- Fix platform-specific issues
+- Add examples and documentation
 
 ### Bigger contributions
 
-- New native API handlers (e.g., screen capture, global shortcuts)
-- Linux AppImage packaging improvements
-- New project templates
+- Linux Wayland native support
+- Windows platform layer
+- CSS property additions
 - Performance optimizations
 
 ## Development Guidelines
 
 ### Code style
 
-- **Go**: Run `gofmt` before committing. Follow standard Go conventions.
-- **JS/CSS**: No build tools. Plain vanilla JS and CSS. No frameworks.
-- **Comments**: Explain *why*, not *what*.
+- **C**: C11, `-Wall -Wextra -Wpedantic`. No external dependencies.
+- **Objective-C**: ARC enabled (`-fobjc-arc`). Follow Apple conventions.
+- **JS**: Plain vanilla JS. No frameworks, no build tools.
 
 ### Commit messages
 
-Keep them short and descriptive:
+Short and descriptive:
 
 ```
-Fix hot reload not triggering on CSS changes
-Add clipboard permission check to fs.writeFile
-Update getting-started docs with Linux instructions
+fix: Metal layer initialization on HiDPI displays
+feat(api): add notification support for macOS
+docs: update getting started guide
 ```
 
 ### Pull requests
 
 1. Fork the repo and create a branch from `main`
 2. Make your changes
-3. Run `go build ./cmd/lightshell` to verify it compiles
-4. Run `go test ./tests/...` to verify tests pass
-5. Open a PR with a clear description of what changed and why
+3. Run `make clean && make` to verify it builds
+4. Run `cd engine/r8e && make test` to verify engine tests pass
+5. Open a PR with a clear description
 
 ### Architecture decisions
 
-- **No Windows code** — Windows support is planned for v2
-- **No bundled browsers** — we use system webviews only
-- **No Node.js at runtime** — the JS client uses `window.lightshell.*` APIs
-- **No npm dependencies at runtime** — external libs via CDN only
-- **Go build tags** for platform-specific code (`//go:build darwin` / `//go:build linux`)
+- **Zero external dependencies** — everything vendored or built-in
+- **Own JS engine** — r8e, not a browser or webview
+- **Own GPU rendering** — Metal (macOS), Vulkan (Linux)
+- **Own font rasterizer** — hardened TrueType, no FreeType/HarfBuzz
+- **Pure C** — no C++, no Rust, no Go at runtime
 
 ## Reporting Bugs
 
 Open an issue at [github.com/lightshell-dev/lightshell/issues](https://github.com/lightshell-dev/lightshell/issues) with:
 
-- What you expected to happen
+- What you expected
 - What actually happened
 - Your OS and version
 - Steps to reproduce
