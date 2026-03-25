@@ -1,9 +1,8 @@
 /*
- * text.h - Text shaping and rasterization API using stb_truetype
+ * text.h - Text shaping and rasterization API using r8e_font
  *
  * Provides simple left-to-right text shaping to produce glyph runs for the
- * display list. Glyph rasterization is handled by stb_truetype via the
- * glyph atlas.
+ * display list. Glyph rasterization is handled by r8e_font via the glyph atlas.
  */
 
 #ifndef LIGHTSHELL_TEXT_H
@@ -12,12 +11,12 @@
 #include <stdint.h>
 #include "r8e_display_list.h"
 
-/* Forward declaration - defined in stb_truetype.h */
-typedef struct stbtt_fontinfo stbtt_fontinfo;
+/* Forward declaration */
+struct R8EFont;
 
-/* Initialize text subsystem (loads default font).
- * Pass NULL for font_path to auto-detect a system font. */
-int ls_text_init(const char *font_path);
+/* Initialize text subsystem.
+ * Pass NULL for font_path to use bundled Inter font. */
+int  ls_text_init(const char *font_path);
 void ls_text_shutdown(void);
 
 /* Shape text and produce glyph runs for the display list.
@@ -36,8 +35,8 @@ typedef struct {
 
 void ls_text_metrics(float font_size, LSTextMetrics *metrics);
 
-/* Accessor for the stb_truetype font info (used by glyph_atlas.c) */
-stbtt_fontinfo *ls_text_get_font(void);
+/* Accessor for the r8e font (used by glyph_atlas.c) */
+struct R8EFont *ls_text_get_font(void);
 
 /* Get the scale factor for a given pixel height */
 float ls_text_get_scale(float font_size);

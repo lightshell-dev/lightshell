@@ -1,6 +1,6 @@
 UNAME_S := $(shell uname -s)
 CC ?= clang
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -I../r8e/src/gpu -I../r8e/include
+CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -I../r8e/src/gpu -I../r8e/src -I../r8e/include
 
 # r8e JS engine library
 R8E_LIB = ../r8e/build/libr8e.a

@@ -1,84 +1,72 @@
 /*
- * text.c - stb_truetype text shaping implementation
+ * text.c - r8e_font text shaping implementation
  */
 
-#define STB_TRUETYPE_IMPLEMENTATION
-#include "stb_truetype.h"
 #include "text.h"
-#include "glyph_atlas.h"
-#include <stdio.h>
+#include "r8e_font.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
-static stbtt_fontinfo g_font;
-static unsigned char *g_font_data = NULL;
+static R8EFont *g_font = NULL;
 
 int ls_text_init(const char *font_path) {
-    if (!font_path) {
-        /* Try common macOS system fonts */
-        const char *candidates[] = {
-            "/System/Library/Fonts/SFNS.ttf",
-            "/System/Library/Fonts/Helvetica.ttc",
-            "/Library/Fonts/Arial.ttf",
-            "/System/Library/Fonts/Geneva.ttf",
-            NULL
-        };
-        for (int i = 0; candidates[i]; i++) {
-            FILE *f = fopen(candidates[i], "rb");
-            if (f) {
-                font_path = candidates[i];
-                fclose(f);
-                break;
-            }
-        }
-        if (!font_path) {
-            fprintf(stderr, "[text] No suitable system font found\n");
+    if (font_path) {
+        FILE *f = fopen(font_path, "rb");
+        if (!f) {
+            fprintf(stderr, "[text] Failed to open font: %s\n", font_path);
             return -1;
         }
-    }
-
-    /* Read font file */
-    FILE *f = fopen(font_path, "rb");
-    if (!f) {
-        fprintf(stderr, "[text] Failed to open font: %s\n", font_path);
-        return -1;
-    }
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    g_font_data = malloc(size);
-    if (!g_font_data) {
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        uint8_t *data = malloc((size_t)sz);
+        if (!data) { fclose(f); return -1; }
+        fread(data, 1, (size_t)sz, f);
         fclose(f);
-        return -1;
+        g_font = r8e_font_load(data, (uint32_t)sz);
+        if (!g_font) {
+            fprintf(stderr, "[text] r8e_font_load failed for: %s\n", font_path);
+            free(data);
+            return -1;
+        }
+        /* Note: data must remain valid for the lifetime of the font.
+         * r8e_font_load does not copy the data. We intentionally leak it here
+         * since the font lives for the duration of the process. */
+        fprintf(stderr, "[text] Loaded font: %s\n", font_path);
+    } else {
+        g_font = r8e_font_load_default();
+        if (!g_font) {
+            fprintf(stderr, "[text] Failed to load bundled font\n");
+            return -1;
+        }
+        fprintf(stderr, "[text] Font loaded (bundled)\n");
     }
-    fread(g_font_data, 1, size, f);
-    fclose(f);
 
-    /* For .ttc files, use font index 0 */
-    int offset = stbtt_GetFontOffsetForIndex(g_font_data, 0);
-    if (!stbtt_InitFont(&g_font, g_font_data, offset)) {
-        fprintf(stderr, "[text] stbtt_InitFont failed for: %s\n", font_path);
-        free(g_font_data);
-        g_font_data = NULL;
-        return -1;
-    }
-
-    fprintf(stderr, "[text] Loaded font: %s\n", font_path);
     fprintf(stderr, "[text] Text subsystem initialized\n");
     return 0;
 }
 
 void ls_text_shutdown(void) {
-    free(g_font_data);
-    g_font_data = NULL;
+    r8e_font_free(g_font);
+    g_font = NULL;
+}
+
+R8EFont *ls_text_get_font(void) {
+    return g_font;
+}
+
+float ls_text_get_scale(float font_size) {
+    if (!g_font) return 0.0f;
+    return r8e_font_scale(g_font, font_size);
 }
 
 /* Simple left-to-right text shaping (no HarfBuzz needed for Latin/CJK) */
 int ls_text_shape(DisplayList *dl, const char *text, uint32_t len,
                   float font_size, R8EGlyphRun **out_runs, uint32_t *out_count) {
-    if (!g_font_data || !text || len == 0) return -1;
+    if (!g_font || !text || len == 0) return -1;
 
-    float scale = stbtt_ScaleForPixelHeight(&g_font, font_size);
+    float scale = r8e_font_scale(g_font, font_size);
 
     /* Count characters (skip UTF-8 continuation bytes) */
     uint32_t glyph_count = 0;
@@ -112,12 +100,12 @@ int ls_text_shape(DisplayList *dl, const char *text, uint32_t len,
             i += 4;
         }
 
-        int glyph_index = stbtt_FindGlyphIndex(&g_font, cp);
+        uint32_t gid = r8e_font_glyph_id(g_font, cp);
 
         int advance, lsb;
-        stbtt_GetGlyphHMetrics(&g_font, glyph_index, &advance, &lsb);
+        r8e_font_hmetrics(g_font, gid, &advance, &lsb);
 
-        run->glyphs[gi].glyph_id = glyph_index;
+        run->glyphs[gi].glyph_id = gid;
         run->glyphs[gi].x_offset = 0;
         run->glyphs[gi].y_offset = 0;
         run->glyphs[gi].x_advance = advance * scale;
@@ -137,8 +125,8 @@ int ls_text_shape(DisplayList *dl, const char *text, uint32_t len,
             } else {
                 next_cp = '?';
             }
-            int next_gi = stbtt_FindGlyphIndex(&g_font, next_cp);
-            int kern = stbtt_GetGlyphKernAdvance(&g_font, glyph_index, next_gi);
+            uint32_t next_gid = r8e_font_glyph_id(g_font, next_cp);
+            int kern = r8e_font_kern(g_font, gid, next_gid);
             run->glyphs[gi].x_advance += kern * scale;
         }
 
@@ -152,22 +140,12 @@ int ls_text_shape(DisplayList *dl, const char *text, uint32_t len,
 }
 
 void ls_text_metrics(float font_size, LSTextMetrics *metrics) {
-    if (!g_font_data || !metrics) return;
-    float scale = stbtt_ScaleForPixelHeight(&g_font, font_size);
+    if (!g_font || !metrics) return;
+    float scale = r8e_font_scale(g_font, font_size);
     int ascent, descent, line_gap;
-    stbtt_GetFontVMetrics(&g_font, &ascent, &descent, &line_gap);
+    r8e_font_vmetrics(g_font, &ascent, &descent, &line_gap);
     metrics->ascent = ascent * scale;
     metrics->descent = descent * scale;
     metrics->line_height = (ascent - descent + line_gap) * scale;
     metrics->advance_width = 0;
-}
-
-/* Export font info for glyph atlas */
-stbtt_fontinfo *ls_text_get_font(void) {
-    return g_font_data ? &g_font : NULL;
-}
-
-float ls_text_get_scale(float font_size) {
-    if (!g_font_data) return 0.0f;
-    return stbtt_ScaleForPixelHeight(&g_font, font_size);
 }

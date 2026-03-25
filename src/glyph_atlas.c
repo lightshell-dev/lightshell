@@ -1,14 +1,14 @@
 /*
  * glyph_atlas.c - Shelf-packing glyph atlas implementation
  *
- * Rasterizes glyphs via stb_truetype and packs them into a grayscale texture
+ * Rasterizes glyphs via r8e_font and packs them into a grayscale texture
  * using shelf (row) packing. The Metal backend uploads this as an R8Unorm
  * texture and uses the value as alpha for text rendering.
  */
 
 #include "glyph_atlas.h"
 #include "text.h"
-#include "stb_truetype.h"
+#include "r8e_font.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -68,21 +68,39 @@ GlyphAtlasEntry *ls_glyph_atlas_get(uint32_t glyph_id, float font_size) {
         }
     }
 
-    /* Get stb_truetype font from text subsystem */
-    stbtt_fontinfo *font = ls_text_get_font();
+    /* Get r8e font from text subsystem */
+    R8EFont *font = ls_text_get_font();
     if (!font) return NULL;
 
     float scale = ls_text_get_scale(font_size);
 
     /* Get glyph bitmap bounding box */
     int x0, y0, x1, y1;
-    stbtt_GetGlyphBitmapBox(font, glyph_id, scale, scale, &x0, &y0, &x1, &y1);
+    if (!r8e_font_glyph_box(font, glyph_id, scale, &x0, &y0, &x1, &y1)) {
+        /* Glyph has no outline (e.g. space) - cache with zero size */
+        if (g_cache_count >= MAX_CACHED_GLYPHS) return NULL;
+        int advance, lsb;
+        r8e_font_hmetrics(font, glyph_id, &advance, &lsb);
+        CachedGlyph *cached = &g_cache[g_cache_count++];
+        cached->glyph_id = glyph_id;
+        cached->size_key = size_key;
+        cached->entry.u0 = 0;
+        cached->entry.v0 = 0;
+        cached->entry.u1 = 0;
+        cached->entry.v1 = 0;
+        cached->entry.width = 0;
+        cached->entry.height = 0;
+        cached->entry.bearing_x = lsb * scale;
+        cached->entry.bearing_y = (float)(-y0);
+        return &cached->entry;
+    }
+
     int bw = x1 - x0;
     int bh = y1 - y0;
 
     /* Get horizontal metrics for bearing */
     int advance, lsb;
-    stbtt_GetGlyphHMetrics(font, glyph_id, &advance, &lsb);
+    r8e_font_hmetrics(font, glyph_id, &advance, &lsb);
 
     /* Handle zero-size glyphs (e.g. space) - still cache them */
     if (bw <= 0 || bh <= 0) {
@@ -97,7 +115,7 @@ GlyphAtlasEntry *ls_glyph_atlas_get(uint32_t glyph_id, float font_size) {
         cached->entry.width = 0;
         cached->entry.height = 0;
         cached->entry.bearing_x = lsb * scale;
-        cached->entry.bearing_y = (float)(-y0);  /* top of glyph above baseline */
+        cached->entry.bearing_y = (float)(-y0);
         return &cached->entry;
     }
 
@@ -113,11 +131,31 @@ GlyphAtlasEntry *ls_glyph_atlas_get(uint32_t glyph_id, float font_size) {
         return NULL;
     }
 
-    /* Render glyph bitmap directly into atlas */
-    stbtt_MakeGlyphBitmap(font,
-                          &g_atlas_data[g_cursor_y * g_atlas_w + g_cursor_x],
-                          bw, bh, g_atlas_w,
-                          scale, scale, glyph_id);
+    /* Render glyph bitmap into a temporary buffer, then copy to atlas.
+     * r8e_font_rasterize assumes stride == width, so we can't render
+     * directly into the atlas which has stride == g_atlas_w. */
+    uint8_t *tmp = calloc((size_t)(bw * bh), 1);
+    if (!tmp) return NULL;
+
+    R8EGlyphBitmap bmp;
+    bmp.pixels = tmp;
+    bmp.width = bw;
+    bmp.height = bh;
+    bmp.x_bearing = x0;
+    bmp.y_bearing = y0;
+
+    if (!r8e_font_rasterize(font, glyph_id, scale, &bmp)) {
+        free(tmp);
+        fprintf(stderr, "[glyph_atlas] Failed to rasterize glyph %u\n", glyph_id);
+        return NULL;
+    }
+
+    /* Copy rows into atlas */
+    for (int row = 0; row < bh; row++) {
+        memcpy(&g_atlas_data[(g_cursor_y + (uint32_t)row) * g_atlas_w + g_cursor_x],
+               &tmp[row * bw], (size_t)bw);
+    }
+    free(tmp);
 
     /* Create cache entry */
     if (g_cache_count >= MAX_CACHED_GLYPHS) {
