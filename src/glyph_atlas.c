@@ -1,15 +1,14 @@
 /*
  * glyph_atlas.c - Shelf-packing glyph atlas implementation
  *
- * Rasterizes glyphs via FreeType and packs them into a grayscale texture
+ * Rasterizes glyphs via stb_truetype and packs them into a grayscale texture
  * using shelf (row) packing. The Metal backend uploads this as an R8Unorm
  * texture and uses the value as alpha for text rendering.
  */
 
 #include "glyph_atlas.h"
 #include "text.h"
-#include <ft2build.h>
-#include FT_FREETYPE_H
+#include "stb_truetype.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -69,22 +68,24 @@ GlyphAtlasEntry *ls_glyph_atlas_get(uint32_t glyph_id, float font_size) {
         }
     }
 
-    /* Get FreeType face from text subsystem */
-    FT_Face face = (FT_Face)ls_text_get_ft_face();
-    if (!face) return NULL;
+    /* Get stb_truetype font from text subsystem */
+    stbtt_fontinfo *font = ls_text_get_font();
+    if (!font) return NULL;
 
-    /* Set size and rasterize */
-    FT_Set_Char_Size(face, 0, (FT_F26Dot6)(font_size * 64), 72, 72);
-    if (FT_Load_Glyph(face, glyph_id, FT_LOAD_RENDER) != 0) {
-        return NULL;
-    }
+    float scale = ls_text_get_scale(font_size);
 
-    FT_Bitmap *bmp = &face->glyph->bitmap;
-    uint32_t bw = bmp->width;
-    uint32_t bh = bmp->rows;
+    /* Get glyph bitmap bounding box */
+    int x0, y0, x1, y1;
+    stbtt_GetGlyphBitmapBox(font, glyph_id, scale, scale, &x0, &y0, &x1, &y1);
+    int bw = x1 - x0;
+    int bh = y1 - y0;
+
+    /* Get horizontal metrics for bearing */
+    int advance, lsb;
+    stbtt_GetGlyphHMetrics(font, glyph_id, &advance, &lsb);
 
     /* Handle zero-size glyphs (e.g. space) - still cache them */
-    if (bw == 0 || bh == 0) {
+    if (bw <= 0 || bh <= 0) {
         if (g_cache_count >= MAX_CACHED_GLYPHS) return NULL;
         CachedGlyph *cached = &g_cache[g_cache_count++];
         cached->glyph_id = glyph_id;
@@ -95,28 +96,28 @@ GlyphAtlasEntry *ls_glyph_atlas_get(uint32_t glyph_id, float font_size) {
         cached->entry.v1 = 0;
         cached->entry.width = 0;
         cached->entry.height = 0;
-        cached->entry.bearing_x = (float)face->glyph->bitmap_left;
-        cached->entry.bearing_y = (float)face->glyph->bitmap_top;
+        cached->entry.bearing_x = lsb * scale;
+        cached->entry.bearing_y = (float)(-y0);  /* top of glyph above baseline */
         return &cached->entry;
     }
 
     /* Shelf packing: try current row */
-    if (g_cursor_x + bw + 1 > g_atlas_w) {
+    if (g_cursor_x + (uint32_t)bw + 1 > g_atlas_w) {
         /* Start new row */
         g_cursor_x = 1;
         g_cursor_y += g_row_height + 1;
         g_row_height = 0;
     }
-    if (g_cursor_y + bh + 1 > g_atlas_h) {
+    if (g_cursor_y + (uint32_t)bh + 1 > g_atlas_h) {
         fprintf(stderr, "[glyph_atlas] Atlas full, cannot fit glyph %u\n", glyph_id);
         return NULL;
     }
 
-    /* Copy bitmap data into atlas */
-    for (uint32_t y = 0; y < bh; y++) {
-        memcpy(&g_atlas_data[(g_cursor_y + y) * g_atlas_w + g_cursor_x],
-               &bmp->buffer[y * (uint32_t)bmp->pitch], bw);
-    }
+    /* Render glyph bitmap directly into atlas */
+    stbtt_MakeGlyphBitmap(font,
+                          &g_atlas_data[g_cursor_y * g_atlas_w + g_cursor_x],
+                          bw, bh, g_atlas_w,
+                          scale, scale, glyph_id);
 
     /* Create cache entry */
     if (g_cache_count >= MAX_CACHED_GLYPHS) {
@@ -128,16 +129,16 @@ GlyphAtlasEntry *ls_glyph_atlas_get(uint32_t glyph_id, float font_size) {
     cached->size_key = size_key;
     cached->entry.u0 = (float)g_cursor_x / (float)g_atlas_w;
     cached->entry.v0 = (float)g_cursor_y / (float)g_atlas_h;
-    cached->entry.u1 = (float)(g_cursor_x + bw) / (float)g_atlas_w;
-    cached->entry.v1 = (float)(g_cursor_y + bh) / (float)g_atlas_h;
+    cached->entry.u1 = (float)(g_cursor_x + (uint32_t)bw) / (float)g_atlas_w;
+    cached->entry.v1 = (float)(g_cursor_y + (uint32_t)bh) / (float)g_atlas_h;
     cached->entry.width = (float)bw;
     cached->entry.height = (float)bh;
-    cached->entry.bearing_x = (float)face->glyph->bitmap_left;
-    cached->entry.bearing_y = (float)face->glyph->bitmap_top;
+    cached->entry.bearing_x = lsb * scale;
+    cached->entry.bearing_y = (float)(-y0);  /* top of glyph above baseline */
 
     /* Advance cursor */
-    g_cursor_x += bw + 1;
-    if (bh > g_row_height) g_row_height = bh;
+    g_cursor_x += (uint32_t)bw + 1;
+    if ((uint32_t)bh > g_row_height) g_row_height = (uint32_t)bh;
     g_dirty = 1;
 
     return &cached->entry;

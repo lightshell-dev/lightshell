@@ -2,12 +2,6 @@ UNAME_S := $(shell uname -s)
 CC ?= clang
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -I../r8e/src/gpu -I../r8e/include
 
-# HarfBuzz and FreeType flags
-HB_CFLAGS = $(shell pkg-config --cflags harfbuzz freetype2 2>/dev/null || echo "-I/opt/homebrew/include/harfbuzz -I/opt/homebrew/include/freetype2 -I/opt/homebrew/include")
-HB_LDFLAGS = $(shell pkg-config --libs harfbuzz freetype2 2>/dev/null || echo "-L/opt/homebrew/lib -lharfbuzz -lfreetype")
-
-CFLAGS += $(HB_CFLAGS)
-
 # r8e JS engine library
 R8E_LIB = ../r8e/build/libr8e.a
 SRCS_R8E = ../r8e/src/gpu/r8e_display_list.c
@@ -17,7 +11,6 @@ BUILD_DIR = build
 ifeq ($(UNAME_S),Linux)
   OBJCFLAGS =
   LDFLAGS = -lvulkan -lX11 -lm
-  LDFLAGS += $(HB_LDFLAGS)
   SRCS_PLATFORM = src/platform_linux.c src/gpu_vulkan.c
   SRCS_C = src/image.c src/text.c src/glyph_atlas.c src/api_fs.c src/api_sysinfo.c
   # Linux main.c (no ObjC)
@@ -25,7 +18,6 @@ ifeq ($(UNAME_S),Linux)
 else ifeq ($(UNAME_S),Darwin)
   OBJCFLAGS = -fobjc-arc
   LDFLAGS = -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore
-  LDFLAGS += $(HB_LDFLAGS)
   SRCS_PLATFORM = src/main.m src/platform_darwin.m src/gpu_metal.m \
                   src/api_clipboard_darwin.m src/api_shell_darwin.m \
                   src/api_dialog_darwin.m src/api_menu_darwin.m

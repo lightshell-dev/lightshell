@@ -50,11 +50,6 @@ int cmd_doctor(int argc, char **argv) {
     total++; ok += check_command("pkg-config --exists x11", "X11");
     #endif
 
-    /* Text rendering */
-    printf("\nText rendering:\n");
-    total++; ok += check_command("pkg-config --exists harfbuzz", "HarfBuzz");
-    total++; ok += check_command("pkg-config --exists freetype2", "FreeType");
-
     /* r8e engine */
     printf("\nr8e engine:\n");
     total++; ok += check_file("../r8e/build/libr8e.a", "libr8e.a");
@@ -63,7 +58,6 @@ int cmd_doctor(int argc, char **argv) {
 
     if (ok < total) {
         printf("\nTo fix missing dependencies:\n");
-        printf("  brew install harfbuzz freetype   # macOS\n");
         printf("  cd ../r8e && make release         # build r8e\n");
     }
 

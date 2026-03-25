@@ -1,31 +1,22 @@
 /*
- * text.c - HarfBuzz + FreeType text shaping implementation
+ * text.c - stb_truetype text shaping implementation
  */
 
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 #include "text.h"
 #include "glyph_atlas.h"
-#include <ft2build.h>
-#include FT_FREETYPE_H
-#include <hb.h>
-#include <hb-ft.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
-static FT_Library g_ft_lib = NULL;
-static FT_Face g_ft_face = NULL;
-static hb_font_t *g_hb_font = NULL;
+static stbtt_fontinfo g_font;
+static unsigned char *g_font_data = NULL;
 
 int ls_text_init(const char *font_path) {
-    if (FT_Init_FreeType(&g_ft_lib) != 0) {
-        fprintf(stderr, "[text] FT_Init_FreeType failed\n");
-        return -1;
-    }
-
-    /* Find a default font if none specified */
     if (!font_path) {
+        /* Try common macOS system fonts */
         const char *candidates[] = {
-            "/System/Library/Fonts/SFPro.ttf",
             "/System/Library/Fonts/SFNS.ttf",
             "/System/Library/Fonts/Helvetica.ttc",
             "/Library/Fonts/Arial.ttf",
@@ -33,85 +24,127 @@ int ls_text_init(const char *font_path) {
             NULL
         };
         for (int i = 0; candidates[i]; i++) {
-            if (FT_New_Face(g_ft_lib, candidates[i], 0, &g_ft_face) == 0) {
-                fprintf(stderr, "[text] Loaded font: %s\n", candidates[i]);
+            FILE *f = fopen(candidates[i], "rb");
+            if (f) {
+                font_path = candidates[i];
+                fclose(f);
                 break;
             }
         }
-        if (!g_ft_face) {
+        if (!font_path) {
             fprintf(stderr, "[text] No suitable system font found\n");
-            FT_Done_FreeType(g_ft_lib);
-            g_ft_lib = NULL;
             return -1;
         }
-    } else {
-        if (FT_New_Face(g_ft_lib, font_path, 0, &g_ft_face) != 0) {
-            fprintf(stderr, "[text] Failed to load font: %s\n", font_path);
-            FT_Done_FreeType(g_ft_lib);
-            g_ft_lib = NULL;
-            return -1;
-        }
-        fprintf(stderr, "[text] Loaded font: %s\n", font_path);
     }
 
-    g_hb_font = hb_ft_font_create(g_ft_face, NULL);
-    if (!g_hb_font) {
-        fprintf(stderr, "[text] hb_ft_font_create failed\n");
-        FT_Done_Face(g_ft_face);
-        g_ft_face = NULL;
-        FT_Done_FreeType(g_ft_lib);
-        g_ft_lib = NULL;
+    /* Read font file */
+    FILE *f = fopen(font_path, "rb");
+    if (!f) {
+        fprintf(stderr, "[text] Failed to open font: %s\n", font_path);
+        return -1;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    g_font_data = malloc(size);
+    if (!g_font_data) {
+        fclose(f);
+        return -1;
+    }
+    fread(g_font_data, 1, size, f);
+    fclose(f);
+
+    /* For .ttc files, use font index 0 */
+    int offset = stbtt_GetFontOffsetForIndex(g_font_data, 0);
+    if (!stbtt_InitFont(&g_font, g_font_data, offset)) {
+        fprintf(stderr, "[text] stbtt_InitFont failed for: %s\n", font_path);
+        free(g_font_data);
+        g_font_data = NULL;
         return -1;
     }
 
+    fprintf(stderr, "[text] Loaded font: %s\n", font_path);
     fprintf(stderr, "[text] Text subsystem initialized\n");
     return 0;
 }
 
 void ls_text_shutdown(void) {
-    if (g_hb_font) { hb_font_destroy(g_hb_font); g_hb_font = NULL; }
-    if (g_ft_face) { FT_Done_Face(g_ft_face); g_ft_face = NULL; }
-    if (g_ft_lib)  { FT_Done_FreeType(g_ft_lib); g_ft_lib = NULL; }
+    free(g_font_data);
+    g_font_data = NULL;
 }
 
-void *ls_text_get_ft_face(void) {
-    return g_ft_face;
-}
-
+/* Simple left-to-right text shaping (no HarfBuzz needed for Latin/CJK) */
 int ls_text_shape(DisplayList *dl, const char *text, uint32_t len,
                   float font_size, R8EGlyphRun **out_runs, uint32_t *out_count) {
-    if (!g_hb_font || !text || len == 0) return -1;
+    if (!g_font_data || !text || len == 0) return -1;
 
-    /* Set font size */
-    FT_Set_Char_Size(g_ft_face, 0, (FT_F26Dot6)(font_size * 64), 72, 72);
-    hb_ft_font_changed(g_hb_font);
+    float scale = stbtt_ScaleForPixelHeight(&g_font, font_size);
 
-    /* Create HarfBuzz buffer and shape */
-    hb_buffer_t *buf = hb_buffer_create();
-    hb_buffer_add_utf8(buf, text, (int)len, 0, (int)len);
-    hb_buffer_guess_segment_properties(buf);
-    hb_shape(g_hb_font, buf, NULL, 0);
+    /* Count characters (skip UTF-8 continuation bytes) */
+    uint32_t glyph_count = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        if ((text[i] & 0xC0) != 0x80) glyph_count++;
+    }
 
-    /* Extract glyph info */
-    unsigned int glyph_count;
-    hb_glyph_info_t *glyph_info = hb_buffer_get_glyph_infos(buf, &glyph_count);
-    hb_glyph_position_t *glyph_pos = hb_buffer_get_glyph_positions(buf, &glyph_count);
-
-    /* Allocate glyph run from display list arena */
     R8EGlyphRun *run = r8e_dl_arena_alloc_glyph_run(dl, glyph_count, 0);
-    if (!run) {
-        hb_buffer_destroy(buf);
-        return -1;
-    }
+    if (!run) return -1;
 
-    for (unsigned int i = 0; i < glyph_count; i++) {
-        run->glyphs[i].glyph_id = glyph_info[i].codepoint;
-        run->glyphs[i].x_offset = glyph_pos[i].x_offset / 64.0f;
-        run->glyphs[i].y_offset = glyph_pos[i].y_offset / 64.0f;
-        run->glyphs[i].x_advance = glyph_pos[i].x_advance / 64.0f;
-    }
+    uint32_t gi = 0;
+    for (uint32_t i = 0; i < len && gi < glyph_count; ) {
+        /* Decode UTF-8 codepoint */
+        uint32_t cp;
+        if ((text[i] & 0x80) == 0) {
+            cp = text[i]; i += 1;
+        } else if ((text[i] & 0xE0) == 0xC0) {
+            cp = ((uint32_t)(text[i] & 0x1F) << 6) |
+                  (uint32_t)(text[i+1] & 0x3F);
+            i += 2;
+        } else if ((text[i] & 0xF0) == 0xE0) {
+            cp = ((uint32_t)(text[i] & 0x0F) << 12) |
+                 ((uint32_t)(text[i+1] & 0x3F) << 6) |
+                  (uint32_t)(text[i+2] & 0x3F);
+            i += 3;
+        } else {
+            cp = ((uint32_t)(text[i] & 0x07) << 18) |
+                 ((uint32_t)(text[i+1] & 0x3F) << 12) |
+                 ((uint32_t)(text[i+2] & 0x3F) << 6) |
+                  (uint32_t)(text[i+3] & 0x3F);
+            i += 4;
+        }
 
-    hb_buffer_destroy(buf);
+        int glyph_index = stbtt_FindGlyphIndex(&g_font, cp);
+
+        int advance, lsb;
+        stbtt_GetGlyphHMetrics(&g_font, glyph_index, &advance, &lsb);
+
+        run->glyphs[gi].glyph_id = glyph_index;
+        run->glyphs[gi].x_offset = 0;
+        run->glyphs[gi].y_offset = 0;
+        run->glyphs[gi].x_advance = advance * scale;
+
+        /* Kerning with next character */
+        if (i < len) {
+            uint32_t next_cp;
+            if ((text[i] & 0x80) == 0) {
+                next_cp = text[i];
+            } else if ((text[i] & 0xE0) == 0xC0 && i + 1 < len) {
+                next_cp = ((uint32_t)(text[i] & 0x1F) << 6) |
+                           (uint32_t)(text[i+1] & 0x3F);
+            } else if ((text[i] & 0xF0) == 0xE0 && i + 2 < len) {
+                next_cp = ((uint32_t)(text[i] & 0x0F) << 12) |
+                          ((uint32_t)(text[i+1] & 0x3F) << 6) |
+                           (uint32_t)(text[i+2] & 0x3F);
+            } else {
+                next_cp = '?';
+            }
+            int next_gi = stbtt_FindGlyphIndex(&g_font, next_cp);
+            int kern = stbtt_GetGlyphKernAdvance(&g_font, glyph_index, next_gi);
+            run->glyphs[gi].x_advance += kern * scale;
+        }
+
+        gi++;
+    }
+    run->count = gi;
 
     *out_runs = run;
     *out_count = 1;
@@ -119,11 +152,22 @@ int ls_text_shape(DisplayList *dl, const char *text, uint32_t len,
 }
 
 void ls_text_metrics(float font_size, LSTextMetrics *metrics) {
-    if (!g_ft_face || !metrics) return;
-    FT_Set_Char_Size(g_ft_face, 0, (FT_F26Dot6)(font_size * 64), 72, 72);
-    metrics->ascent = g_ft_face->size->metrics.ascender / 64.0f;
-    metrics->descent = g_ft_face->size->metrics.descender / 64.0f;
-    metrics->line_height = (g_ft_face->size->metrics.ascender
-                          - g_ft_face->size->metrics.descender) / 64.0f;
-    metrics->advance_width = 0; /* depends on actual text */
+    if (!g_font_data || !metrics) return;
+    float scale = stbtt_ScaleForPixelHeight(&g_font, font_size);
+    int ascent, descent, line_gap;
+    stbtt_GetFontVMetrics(&g_font, &ascent, &descent, &line_gap);
+    metrics->ascent = ascent * scale;
+    metrics->descent = descent * scale;
+    metrics->line_height = (ascent - descent + line_gap) * scale;
+    metrics->advance_width = 0;
+}
+
+/* Export font info for glyph atlas */
+stbtt_fontinfo *ls_text_get_font(void) {
+    return g_font_data ? &g_font : NULL;
+}
+
+float ls_text_get_scale(float font_size) {
+    if (!g_font_data) return 0.0f;
+    return stbtt_ScaleForPixelHeight(&g_font, font_size);
 }
