@@ -1,7 +1,6 @@
 /* main.m - LightShell demo entry point */
 #import <Foundation/Foundation.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include "platform.h"
 #include "gpu.h"
@@ -12,62 +11,6 @@
 #include "r8e_api.h"
 #include "r8e_types.h"
 #include "api.h"
-
-/* Load Electron compat layer from bundled JS */
-static void load_compat_layer(R8EContext *ctx, const char *exe_path) {
-    const char *candidates[] = {
-        "compat/compat_bundle.js",
-        "../compat/compat_bundle.js",
-        NULL
-    };
-
-    /* Also try relative to executable directory */
-    char exe_rel[1024] = {0};
-    if (exe_path) {
-        /* Find last '/' in exe_path to get directory */
-        const char *last_slash = strrchr(exe_path, '/');
-        if (last_slash) {
-            size_t dir_len = (size_t)(last_slash - exe_path);
-            if (dir_len + 30 < sizeof(exe_rel)) {
-                memcpy(exe_rel, exe_path, dir_len);
-                strlcpy(exe_rel + dir_len, "/../compat/compat_bundle.js",
-                        sizeof(exe_rel) - dir_len);
-            }
-        }
-    }
-
-    FILE *f = NULL;
-    const char *used_path = NULL;
-
-    for (int i = 0; candidates[i]; i++) {
-        f = fopen(candidates[i], "r");
-        if (f) { used_path = candidates[i]; break; }
-    }
-    if (!f && exe_rel[0]) {
-        f = fopen(exe_rel, "r");
-        if (f) used_path = exe_rel;
-    }
-
-    if (!f) {
-        fprintf(stderr, "[lightshell] Warning: compat bundle not found (tried compat/compat_bundle.js)\n");
-        return;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    char *source = malloc((size_t)size + 1);
-    fread(source, 1, (size_t)size, f);
-    source[size] = '\0';
-    fclose(f);
-
-    R8EValue result = r8e_eval(ctx, source, (size_t)size);
-    (void)result;
-    free(source);
-
-    fprintf(stderr, "[lightshell] Electron compat layer loaded (%ld bytes from %s)\n", size, used_path);
-}
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -121,9 +64,6 @@ int main(int argc, char **argv) {
         ls_api_dialog_init(ctx);
         ls_api_menu_init(ctx);
 
-        /* Load Electron compat layer (must be after native API init) */
-        load_compat_layer(ctx, argv[0]);
-
         /* Verify native APIs */
         {
             R8EValue platform = r8e_eval(ctx, "lightshell.system.platform", 0);
@@ -134,13 +74,6 @@ int main(int argc, char **argv) {
             R8EValue exists = r8e_eval(ctx, "lightshell.fs.exists('/tmp')", 0);
             fprintf(stderr, "[lightshell] fs.exists('/tmp') = %s\n",
                     r8e_to_bool(exists) ? "true" : "false");
-
-            /* Verify compat layer: require('electron') should return an object with .app */
-            R8EValue compat_check = r8e_eval(ctx,
-                "typeof require === 'function' && typeof require('electron').app === 'object' ? 'ok' : 'fail'", 0);
-            char cbuf[8]; size_t clen;
-            const char *cstr = r8e_get_cstring(compat_check, cbuf, &clen);
-            fprintf(stderr, "[lightshell] require('electron').app = %.*s\n", (int)clen, cstr);
         }
 
         /* Set screen dimension globals */
