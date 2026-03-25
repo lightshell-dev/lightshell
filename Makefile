@@ -30,7 +30,8 @@ else ifeq ($(UNAME_S),Darwin)
   SRCS_PLATFORM = src/main.m src/platform_darwin.m src/gpu_metal.m \
                   src/api_clipboard_darwin.m src/api_shell_darwin.m \
                   src/api_dialog_darwin.m src/api_menu_darwin.m
-  SRCS_C        = src/image.c src/text.c src/glyph_atlas.c src/api_fs.c src/api_sysinfo.c
+  SRCS_C        = src/image.c src/text.c src/glyph_atlas.c src/api_fs.c src/api_sysinfo.c \
+                  src/api_window.c src/api_app.c src/api_console.c src/api_timers.c
   SRCS_MAIN     =
 endif
 

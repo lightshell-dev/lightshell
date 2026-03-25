@@ -43,6 +43,13 @@ void *platform_get_metal_layer(void);    /* returns CAMetalLayer* (macOS) */
 void *platform_get_vulkan_instance(void); /* returns VkInstance (Linux) */
 void *platform_get_vulkan_surface(void);  /* returns VkSurfaceKHR (Linux) */
 
+/* Window management */
+void platform_set_title(const char *title);
+void platform_set_size(int width, int height);
+void platform_minimize(void);
+void platform_maximize(void);
+void platform_close(void);
+
 void platform_frame_begin(void);
 void platform_frame_end(void);   /* sleeps to hit 60fps target */
 

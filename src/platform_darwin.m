@@ -366,6 +366,50 @@ void *platform_get_metal_layer(void) {
     return (__bridge void *)g_metal_layer;
 }
 
+/* --- Window management --- */
+
+void platform_set_title(const char *title) {
+    if (g_window && title) {
+        NSString *nsTitle = [NSString stringWithUTF8String:title];
+        [g_window setTitle:nsTitle];
+    }
+}
+
+void platform_set_size(int width, int height) {
+    if (g_window) {
+        NSRect frame = [g_window frame];
+        NSRect content = [g_window contentRectForFrameRect:frame];
+        /* Keep the top-left corner fixed */
+        CGFloat titleBarHeight = frame.size.height - content.size.height;
+        frame.origin.y += (frame.size.height - (height + titleBarHeight));
+        frame.size.width = width;
+        frame.size.height = height + titleBarHeight;
+        [g_window setFrame:frame display:YES animate:NO];
+    }
+}
+
+void platform_minimize(void) {
+    if (g_window) {
+        [g_window miniaturize:nil];
+    }
+}
+
+void platform_maximize(void) {
+    if (g_window) {
+        [g_window zoom:nil];
+    }
+}
+
+void platform_close(void) {
+    if (g_window) {
+        /* Push a close event so the main loop can handle shutdown */
+        PlatformEvent ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.type = PLATFORM_EVENT_CLOSE;
+        event_push(&ev);
+    }
+}
+
 static uint64_t g_frame_start = 0;
 static double g_tick_to_ns = 0;
 

@@ -63,6 +63,10 @@ int main(int argc, char **argv) {
         ls_api_shell_init(ctx);
         ls_api_dialog_init(ctx);
         ls_api_menu_init(ctx);
+        ls_api_window_init(ctx);
+        ls_api_app_init(ctx);
+        ls_api_console_init(ctx);
+        ls_api_timers_init(ctx);
 
         /* Verify native APIs */
         {
@@ -74,6 +78,10 @@ int main(int argc, char **argv) {
             R8EValue exists = r8e_eval(ctx, "lightshell.fs.exists('/tmp')", 0);
             fprintf(stderr, "[lightshell] fs.exists('/tmp') = %s\n",
                     r8e_to_bool(exists) ? "true" : "false");
+
+            r8e_eval(ctx, "console.log('Hello from console!')", 0);
+            r8e_eval(ctx, "lightshell.window.setTitle('Updated Title')", 0);
+            r8e_eval(ctx, "setTimeout(function() { console.log('Timer fired!'); }, 100)", 0);
         }
 
         /* Set screen dimension globals */
@@ -111,6 +119,9 @@ int main(int argc, char **argv) {
                     }
                 }
                 if (!running) break;
+
+                /* Tick timers */
+                ls_timers_tick(ctx);
 
                 /* Update mouse position in JS engine */
                 r8e_set_global(ctx, "mouseX", r8e_from_int32((int)mouse_x));

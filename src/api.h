@@ -31,6 +31,21 @@ void ls_api_dialog_init(R8EContext *ctx);
 /* Menu API (macOS) */
 void ls_api_menu_init(R8EContext *ctx);
 
+/* Window management API */
+void ls_api_window_init(R8EContext *ctx);
+
+/* App lifecycle API */
+void ls_api_app_init(R8EContext *ctx);
+
+/* Console API (console.log/error/warn) */
+void ls_api_console_init(R8EContext *ctx);
+
+/* Timer API (setTimeout/setInterval/clear*) */
+void ls_api_timers_init(R8EContext *ctx);
+
+/* Tick timers — call each frame from event loop */
+void ls_timers_tick(R8EContext *ctx);
+
 /* Helper: get or create the lightshell global namespace */
 static inline R8EValue ls_get_namespace(R8EContext *ctx) {
     R8EValue ls = r8e_get_global(ctx, "lightshell");
