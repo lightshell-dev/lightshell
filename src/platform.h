@@ -53,6 +53,11 @@ void platform_close(void);
 void platform_frame_begin(void);
 void platform_frame_end(void);   /* sleeps to hit 60fps target */
 
+/* Key character extraction: get the typed character from a key event.
+ * Uses NSEvent.characters on macOS to handle keyboard layouts and dead keys.
+ * out must be at least 8 bytes. *out_len is set to the number of bytes written. */
+void platform_get_key_char(PlatformEvent *event, char *out, int *out_len);
+
 /* Resize render callback: called during live window resize so frames keep rendering */
 typedef void (*PlatformResizeRenderCallback)(void);
 void platform_set_resize_render_callback(PlatformResizeRenderCallback cb);

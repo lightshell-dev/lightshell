@@ -68,6 +68,7 @@ int main(int argc, char **argv) {
         ls_api_console_init(ctx);
         ls_api_timers_init(ctx);
         ls_api_db_init(ctx);
+        ls_api_fetch_init(ctx);
 
         /* Verify native APIs */
         {

@@ -7,6 +7,16 @@
 #include <mach/mach_time.h>
 #include <unistd.h>
 
+/* --- Key character storage --- */
+/* We store the NSEvent characters string alongside each key event so
+ * platform_get_key_char can retrieve the typed character later. */
+static char g_key_chars[PLATFORM_EVENT_QUEUE_SIZE][8];
+static int  g_key_chars_len[PLATFORM_EVENT_QUEUE_SIZE];
+
+/* Track last popped event's key chars for platform_get_key_char */
+static char g_last_key_chars[8];
+static int  g_last_key_chars_len = 0;
+
 /* --- Event ring buffer --- */
 static PlatformEvent g_event_queue[PLATFORM_EVENT_QUEUE_SIZE];
 static int g_queue_head = 0;  /* read position */
@@ -27,6 +37,9 @@ static void event_push(PlatformEvent *ev) {
 static bool event_pop(PlatformEvent *ev) {
     if (g_queue_count == 0) return false;
     *ev = g_event_queue[g_queue_head];
+    /* Save key chars for platform_get_key_char */
+    memcpy(g_last_key_chars, g_key_chars[g_queue_head], 8);
+    g_last_key_chars_len = g_key_chars_len[g_queue_head];
     g_queue_head = (g_queue_head + 1) % PLATFORM_EVENT_QUEUE_SIZE;
     g_queue_count--;
     return true;
@@ -132,6 +145,22 @@ static void fill_modifiers(PlatformEvent *ev, NSEventModifierFlags flags) {
     ev.type = PLATFORM_EVENT_KEY_DOWN;
     ev.keycode = (uint32_t)[event keyCode];
     fill_modifiers(&ev, [event modifierFlags]);
+
+    /* Store typed characters for platform_get_key_char */
+    NSString *chars = [event characters];
+    int slot = g_queue_tail;  /* will be written to this slot by event_push */
+    memset(g_key_chars[slot], 0, 8);
+    g_key_chars_len[slot] = 0;
+    if (chars && [chars length] > 0) {
+        const char *utf8 = [chars UTF8String];
+        if (utf8) {
+            int len = (int)strlen(utf8);
+            if (len > 7) len = 7;
+            memcpy(g_key_chars[slot], utf8, (size_t)len);
+            g_key_chars_len[slot] = len;
+        }
+    }
+
     event_push(&ev);
 }
 
@@ -407,6 +436,20 @@ void platform_close(void) {
         memset(&ev, 0, sizeof(ev));
         ev.type = PLATFORM_EVENT_CLOSE;
         event_push(&ev);
+    }
+}
+
+/* --- Key character extraction --- */
+void platform_get_key_char(PlatformEvent *event, char *out, int *out_len) {
+    (void)event;
+    /* Return the characters from the last popped key event */
+    if (g_last_key_chars_len > 0) {
+        memcpy(out, g_last_key_chars, (size_t)g_last_key_chars_len);
+        out[g_last_key_chars_len] = '\0';
+        *out_len = g_last_key_chars_len;
+    } else {
+        out[0] = '\0';
+        *out_len = 0;
     }
 }
 

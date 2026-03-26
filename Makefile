@@ -37,10 +37,11 @@ else ifeq ($(UNAME_S),Darwin)
   LDFLAGS      = -framework Metal -framework MetalKit -framework Cocoa -framework QuartzCore
   SRCS_PLATFORM = src/main.m src/platform_darwin.m src/gpu_metal.m \
                   src/api_clipboard_darwin.m src/api_shell_darwin.m \
-                  src/api_dialog_darwin.m src/api_menu_darwin.m
+                  src/api_dialog_darwin.m src/api_menu_darwin.m \
+                  src/api_fetch_darwin.m
   SRCS_C        = src/image.c src/text.c src/glyph_atlas.c src/api_fs.c src/api_sysinfo.c \
                   src/api_window.c src/api_app.c src/api_console.c src/api_timers.c \
-                  src/api_db.c
+                  src/api_db.c src/input_text.c
   SRCS_MAIN     =
 endif
 
