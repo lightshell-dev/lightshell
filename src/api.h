@@ -43,6 +43,9 @@ void ls_api_console_init(R8EContext *ctx);
 /* Timer API (setTimeout/setInterval/clear*) */
 void ls_api_timers_init(R8EContext *ctx);
 
+/* Database API (stowDB) */
+void ls_api_db_init(R8EContext *ctx);
+
 /* Tick timers — call each frame from event loop */
 void ls_timers_tick(R8EContext *ctx);
 
