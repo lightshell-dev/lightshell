@@ -162,6 +162,16 @@ int main(int argc, char **argv) {
                 r8e_dl_push_fill_rect(&dl, 400, 350, 200, 100, 0xFFFF8800, 12.0f);
                 r8e_dl_pop_opacity(&dl);
 
+                /* Box shadow demo: subtle shadow behind a white card */
+                r8e_dl_push_box_shadow(&dl, 300, 420, 180, 80,
+                                       0, 4, 24, 0x40000000, 12.0f);
+                r8e_dl_push_fill_rect(&dl, 300, 420, 180, 80, 0xFFFFFFFF, 12.0f);
+
+                /* Box shadow demo 2: deeper shadow on a button */
+                r8e_dl_push_box_shadow(&dl, 530, 420, 120, 40,
+                                       2, 6, 16, 0x80000000, 8.0f);
+                r8e_dl_push_fill_rect(&dl, 530, 420, 120, 40, 0xFF4488FF, 8.0f);
+
                 /* Image demo: draw test pattern texture */
                 if (test_tex) {
                     r8e_dl_push_draw_image(&dl, 550, 180, 128, 128, test_tex);

@@ -102,6 +102,32 @@ static const char *shader_source =
     "    return in.color;\n"
     "}\n"
     "\n"
+    "/* ---- Box shadow fragment shader ---- */\n"
+    "/* Reuses rect_vertex and RectInstance layout.\n"
+    " * The instance rect is the *expanded* shadow rect (element + blur padding).\n"
+    " * stroke_width carries the blur radius.\n"
+    " * border_radius carries the element's border radius.\n"
+    " * The SDF is computed against the *inner* (original element) rect,\n"
+    " * then a gaussian falloff is applied based on distance/blur. */\n"
+    "fragment float4 shadow_fragment(VertexOut in [[stage_in]]) {\n"
+    "    float blur = in.stroke_width;\n"
+    "    /* Inner rect half-size = expanded half-size minus blur padding */\n"
+    "    float2 half_size = in.rect_size * 0.5;\n"
+    "    float2 inner_half = half_size - float2(blur);\n"
+    "    float2 p = in.local_pos - half_size;\n"
+    "    float r = min(in.border_radius, min(inner_half.x, inner_half.y));\n"
+    "    r = max(r, 0.0);\n"
+    "    /* SDF distance to inner rounded rect (positive = outside) */\n"
+    "    float2 q = abs(p) - (inner_half - float2(r));\n"
+    "    float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;\n"
+    "    /* Gaussian-like falloff: smoothstep gives a soft shadow edge */\n"
+    "    float alpha = 1.0 - smoothstep(-1.0, blur, d);\n"
+    "    alpha = alpha * alpha;  /* quadratic tightening for natural look */\n"
+    "    alpha *= in.color.a;\n"
+    "    if (alpha < 0.002) discard_fragment();\n"
+    "    return float4(in.color.rgb * alpha, alpha);\n"
+    "}\n"
+    "\n"
     "/* ---- Image (textured quad) shaders ---- */\n"
     "struct ImageInstance {\n"
     "    float2 position;\n"
@@ -205,6 +231,7 @@ typedef struct {
 static id<MTLDevice>              g_device;
 static id<MTLCommandQueue>        g_queue;
 static id<MTLRenderPipelineState> g_rect_pipeline;
+static id<MTLRenderPipelineState> g_shadow_pipeline;
 static id<MTLRenderPipelineState> g_image_pipeline;
 static id<MTLRenderPipelineState> g_glyph_pipeline;
 static CAMetalLayer              *g_layer;
@@ -337,6 +364,32 @@ static int metal_init(void *layer) {
     g_rect_pipeline = [g_device newRenderPipelineStateWithDescriptor:pd error:&err];
     if (!g_rect_pipeline) {
         fprintf(stderr, "[lightshell] Pipeline error: %s\n",
+                [[err description] UTF8String]);
+        return -1;
+    }
+
+    /* Shadow pipeline (same vertex as rect, different fragment for gaussian blur) */
+    id<MTLFunction> shadow_ffn = [lib newFunctionWithName:@"shadow_fragment"];
+    if (!shadow_ffn) {
+        fprintf(stderr, "[lightshell] Could not find shadow_fragment shader\n");
+        return -1;
+    }
+
+    MTLRenderPipelineDescriptor *shadow_pd = [[MTLRenderPipelineDescriptor alloc] init];
+    shadow_pd.vertexFunction = vfn;  /* reuse rect_vertex */
+    shadow_pd.fragmentFunction = shadow_ffn;
+    shadow_pd.colorAttachments[0].pixelFormat = g_layer.pixelFormat;
+
+    /* Alpha blending for shadows (premultiplied alpha output) */
+    shadow_pd.colorAttachments[0].blendingEnabled = YES;
+    shadow_pd.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
+    shadow_pd.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    shadow_pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+    shadow_pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+
+    g_shadow_pipeline = [g_device newRenderPipelineStateWithDescriptor:shadow_pd error:&err];
+    if (!g_shadow_pipeline) {
+        fprintf(stderr, "[lightshell] Shadow pipeline error: %s\n",
                 [[err description] UTF8String]);
         return -1;
     }
@@ -737,6 +790,44 @@ static void metal_render(DisplayList *dl) {
                 break;
             }
 
+            case DL_BOX_SHADOW: {
+                /* Flush pending rects before switching to shadow pipeline */
+                flush_rects(enc, &rect_count);
+
+                /* Build an expanded rect instance for the shadow.
+                 * The rect is expanded by blur radius on each side,
+                 * offset by shadow offsets. */
+                float blur = cmd->box_shadow.blur;
+                float ex = (cmd->box_shadow.x + cmd->box_shadow.offset_x - blur) * scale_x;
+                float ey = (cmd->box_shadow.y + cmd->box_shadow.offset_y - blur) * scale_y;
+                float ew = (cmd->box_shadow.w + blur * 2.0f) * scale_x;
+                float eh = (cmd->box_shadow.h + blur * 2.0f) * scale_y;
+
+                MetalRectInstance *inst = &rects[0];
+                inst->position[0] = ex;
+                inst->position[1] = ey;
+                inst->size[0] = ew;
+                inst->size[1] = eh;
+                unpack_color_with_opacity(cmd->box_shadow.color, current_opacity, inst->color);
+                inst->border_radius = cmd->box_shadow.border_radius * scale_x;
+                inst->stroke_width = blur * scale_x;  /* blur radius passed via stroke_width */
+                inst->_pad[0] = 0;
+                inst->_pad[1] = 0;
+
+                [enc setRenderPipelineState:g_shadow_pipeline];
+                [enc setVertexBuffer:g_rect_buf   offset:0 atIndex:0];
+                [enc setVertexBuffer:g_viewport_buf offset:0 atIndex:1];
+                [enc drawPrimitives:MTLPrimitiveTypeTriangle
+                        vertexStart:0
+                        vertexCount:6
+                      instanceCount:1];
+                break;
+            }
+
+            case DL_FILL_PATH:
+                /* Fill path not yet implemented in Metal backend */
+                break;
+
             default:
                 fprintf(stderr, "[lightshell] Ignoring display command type %d\n",
                         cmd->type);
@@ -780,6 +871,7 @@ static void metal_destroy(void) {
 
     g_atlas_texture = nil;
     g_rect_pipeline = nil;
+    g_shadow_pipeline = nil;
     g_image_pipeline = nil;
     g_glyph_pipeline = nil;
     g_rect_buf = nil;
